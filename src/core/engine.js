@@ -253,12 +253,25 @@ export class Engine {
   // 오답/시간초과: 콤보 리셋 + (옵션)라이프 -1 + 정답 1.2초 표시 + 복습큐 + 레벨하향
   // opts.loseLife: 라이프 차감 여부 (반사신경 게임은 false 가능)
   // opts.onResume: 1.2초 후 다음 진행 콜백 (게임이 다음 문제 로드 등)
+  // opts.freeze:    기본 true. false면 1.2초 정답표시 오버레이/화면정지/실패음을 생략하고
+  //                 게임 흐름을 멈추지 않는다. 콤보 리셋·세션 기록만 처리(반사신경 '놓침'용).
+  //                 이때 onResume은 쓰지 않는다(게임이 스스로 계속 진행).
+  // opts.affectLevel: 기본 true. false면 problemGenerator.reportResult(레벨 하향·복습큐 등록)를
+  //                 건너뛴다. '놓침'은 이해 부족이 아니라 반응 속도 문제라 수학 난이도 근거가 아니다.
+  // opts.missed:    기본 false. 세션 기록에 '놓침' 여부를 남긴다(오답 '터치'와 구분 — 결과 화면용).
   answerWrong(problem, userAnswer, opts = {}) {
-    const { loseLife = true, onResume = null } = opts;
+    const { loseLife = true, onResume = null, freeze = true, affectLevel = true, missed = false } = opts;
     const rMs = this.responseMs;
     const res = this.scoreManager.registerWrong({ loseLife });
-    this.session.record({ gameId: this.game.id, question: problem, userAnswer, correct: false, responseMs: rMs });
-    this.problemGenerator.reportResult(problem, false);
+    this.session.record({ gameId: this.game.id, question: problem, userAnswer, correct: false, responseMs: rMs, missed });
+    // 레벨 하향·복습큐 등록 (반사신경 '놓침'은 affectLevel:false로 제외)
+    if (affectLevel) this.problemGenerator.reportResult(problem, false);
+
+    // freeze:false → 게임을 멈추지 않고 즉시 반환. 실패음도 재생하지 않는다(시각 연출만).
+    if (!freeze) {
+      if (res.gameOver) this.endGame(); // 안전장치(놓침은 loseLife:false라 실제 도달 안 함)
+      return res;
+    }
 
     this.sound.play('wrong');
     this.ui.shake(16, 0.35);

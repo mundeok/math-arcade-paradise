@@ -17,7 +17,8 @@ export class Session {
   }
 
   // SPEC 3.7 구조 그대로 기록
-  record({ gameId, question, userAnswer, correct, responseMs }) {
+  // missed: 반사신경 게임에서 정답을 놓쳐 바닥에 닿은 '놓침' 여부(오답 '터치'와 구분). 기본 false.
+  record({ gameId, question, userAnswer, correct, responseMs, missed = false }) {
     const entry = {
       gameId,
       question: {
@@ -32,6 +33,7 @@ export class Session {
       },
       userAnswer,
       correct,
+      missed,
       responseMs,
       timestamp: Date.now(),
     };

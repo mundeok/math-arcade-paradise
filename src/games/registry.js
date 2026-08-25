@@ -3,11 +3,14 @@
 //    Phase 1부터: src/games/gNN_*.js 를 만들고 아래 IMPLEMENTED 배열에 한 줄 추가.
 
 import { dummyGame } from './_dummy.js';
+import { g01Combo } from './g01_combo.js';
+import { g02Catch } from './g02_catch.js';
 
-// 실제로 구현되어 플레이 가능한 게임들 (Phase 0: 더미 1개)
+// 실제로 구현되어 플레이 가능한 게임들 (Phase 0: 더미 1개 / Phase 1: +2종)
 export const IMPLEMENTED = [
   dummyGame,
-  // Phase 1: import { g01Combo } from './g01_combo.js'; → 여기에 g01Combo 추가
+  g01Combo, // Phase 1
+  g02Catch, // Phase 1
 ];
 
 // 메뉴 표시용 10종 카탈로그 (SPEC §4). 구현 전 게임은 "준비 중"으로 뜬다.
