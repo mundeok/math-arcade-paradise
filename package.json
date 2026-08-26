@@ -1,0 +1,10 @@
+{
+  "name": "math-arcade-paradise",
+  "version": "0.1.0",
+  "private": true,
+  "description": "곱셈나눗셈 아케이드 천국 (Math Arcade Paradise)",
+  "scripts": {
+    "build": "node build.js"
+  },
+  "dependencies": {}
+}
