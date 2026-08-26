@@ -17,6 +17,7 @@ export const menuScene = {
     this.gearHold = 0;
     this.gearPressing = false;
     this.t = 0;
+    this.hoverPt = null; // 마우스 hover 위치(논리좌표). 없으면 null (터치/이탈 시)
   },
 
   _build() {
@@ -114,6 +115,12 @@ export const menuScene = {
         ctx.fillText('준비 중', c.x + c.w / 2, c.y + 168);
       }
       ctx.globalAlpha = 1;
+      // hover 시 살짝 밝게 (활성 셀만)
+      if (c.active && this._hovered(c)) {
+        roundRect(ctx, c.x, c.y, c.w, c.h, 22);
+        ctx.fillStyle = 'rgba(255,255,255,0.12)';
+        ctx.fill();
+      }
     }
 
     // 리포트 버튼
@@ -121,6 +128,10 @@ export const menuScene = {
     roundRect(ctx, r.x, r.y, r.w, r.h, 20);
     ctx.fillStyle = THEME.panel;
     ctx.fill();
+    if (this._hovered(r)) {
+      ctx.fillStyle = 'rgba(255,255,255,0.12)';
+      ctx.fill();
+    }
     ctx.fillStyle = '#fff';
     ctx.font = font(38);
     ctx.fillText(r.label, r.x + r.w / 2, r.y + r.h / 2);
@@ -146,6 +157,10 @@ export const menuScene = {
     roundRect(ctx, g.x, g.y, g.w, g.h, 18);
     ctx.fillStyle = THEME.panel;
     ctx.fill();
+    if (this._hovered(g)) {
+      ctx.fillStyle = 'rgba(255,255,255,0.12)';
+      ctx.fill();
+    }
     ctx.font = font(50);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -198,6 +213,21 @@ export const menuScene = {
         return;
       }
     }
+  },
+
+  // 마우스 hover: 클릭 가능한 요소(활성 게임 셀 / 리포트 / 기어) 위인지 반환. 커서 pointer 판정용.
+  onHover(x, y) {
+    this.hoverPt = { x, y };
+    if (hit(this.gearRect, x, y)) return true;
+    if (hit(this.reportBtn, x, y)) return true;
+    for (const c of this.cells) if (c.active && hit(c, x, y)) return true;
+    return false;
+  },
+  clearHover() {
+    this.hoverPt = null;
+  },
+  _hovered(rect) {
+    return this.hoverPt && hit(rect, this.hoverPt);
   },
 
   onKey() {},

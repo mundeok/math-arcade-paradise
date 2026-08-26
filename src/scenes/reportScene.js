@@ -12,6 +12,7 @@ export const reportScene = {
     this.engine = engine;
     this.data = this._aggregate(Session.getReport());
     this.backBtn = { x: SAFE, y: LOGICAL_H - SAFE - 110, w: LOGICAL_W - SAFE * 2, h: 110, label: '← 메뉴로' };
+    this.hoverPt = null;
   },
 
   // 단(dan)별 정답률 집계 (SPEC §3.7 리포트 집계 규칙)
@@ -125,6 +126,10 @@ export const reportScene = {
     roundRect(ctx, b.x, b.y, b.w, b.h, 20);
     ctx.fillStyle = THEME.panel;
     ctx.fill();
+    if (this.hoverPt && hit(b, this.hoverPt.x, this.hoverPt.y)) {
+      ctx.fillStyle = 'rgba(255,255,255,0.12)';
+      ctx.fill();
+    }
     ctx.fillStyle = '#fff';
     ctx.font = font(40);
     ctx.fillText(b.label, b.x + b.w / 2, b.y + b.h / 2);
@@ -133,6 +138,14 @@ export const reportScene = {
   onTouch(x, y, phase) {
     if (phase !== 'end') return;
     if (hit(this.backBtn, x, y)) this.engine.setState('MENU');
+  },
+
+  onHover(x, y) {
+    this.hoverPt = { x, y };
+    return hit(this.backBtn, x, y);
+  },
+  clearHover() {
+    this.hoverPt = null;
   },
 
   onKey(e) {

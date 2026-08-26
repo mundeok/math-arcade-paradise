@@ -10,6 +10,7 @@ export const tutorialScene = {
     this.game = engine.pendingGame;
     this.startBtn = { x: (LOGICAL_W - 480) / 2, y: LOGICAL_H - SAFE - 140, w: 480, h: 140, label: '시작!' };
     this.backBtn = { x: SAFE, y: SAFE, w: 160, h: 90, label: '← 뒤로' };
+    this.hoverPt = null;
   },
 
   update() {},
@@ -46,6 +47,10 @@ export const tutorialScene = {
     roundRect(ctx, b.x, b.y, b.w, b.h, 28);
     ctx.fillStyle = THEME.correct;
     ctx.fill();
+    if (this._hovered(b)) {
+      ctx.fillStyle = 'rgba(255,255,255,0.12)';
+      ctx.fill();
+    }
     ctx.fillStyle = '#fff';
     ctx.font = font(60);
     ctx.fillText(b.label, b.x + b.w / 2, b.y + b.h / 2);
@@ -55,6 +60,10 @@ export const tutorialScene = {
     roundRect(ctx, bk.x, bk.y, bk.w, bk.h, 16);
     ctx.fillStyle = THEME.panel;
     ctx.fill();
+    if (this._hovered(bk)) {
+      ctx.fillStyle = 'rgba(255,255,255,0.12)';
+      ctx.fill();
+    }
     ctx.fillStyle = '#fff';
     ctx.font = font(32);
     ctx.fillText(bk.label, bk.x + bk.w / 2, bk.y + bk.h / 2);
@@ -69,6 +78,17 @@ export const tutorialScene = {
     if (hit(this.backBtn, x, y)) {
       this.engine.setState('MENU');
     }
+  },
+
+  onHover(x, y) {
+    this.hoverPt = { x, y };
+    return hit(this.startBtn, x, y) || hit(this.backBtn, x, y);
+  },
+  clearHover() {
+    this.hoverPt = null;
+  },
+  _hovered(rect) {
+    return this.hoverPt && hit(rect, this.hoverPt);
   },
 
   onKey(e) {

@@ -485,6 +485,38 @@ export class Engine {
     }
   }
 
+  // ── 마우스 hover 라우팅 (마우스 전용) ─────────────────────
+  // 클릭 가능한 요소 위에 커서가 있으면 canvas 커서를 'pointer', 아니면 'default'로 바꾼다.
+  // 씬/게임의 onHover(x,y)는 "클릭 가능 요소 위인가"를 boolean으로 반환한다(선택적 메서드).
+  // 터치 입력은 hover를 발생시키지 않는다(input.js가 마우스 이동에서만 호출).
+  dispatchHover(x, y) {
+    let over = false;
+    switch (this.state) {
+      case STATE.PLAYING:
+        if (!this.freeze.active) {
+          if (this.ui.hitPause(x, y)) over = true;
+          else if (this.game && this.game.onHover) over = !!this.game.onHover(x, y);
+        }
+        break;
+      case STATE.PAUSED:
+        over = this._pauseButtons().some((b) => hitBtn(b, x, y));
+        break;
+      case STATE.ORIENTATION_WARNING:
+        break;
+      default:
+        if (this.scene && this.scene.onHover) over = !!this.scene.onHover(x, y);
+        break;
+    }
+    this.canvas.style.cursor = over ? 'pointer' : 'default';
+  }
+
+  // 커서/ hover 상태 초기화. 터치 시작 시(터치 기기 hover 잔상 방지)와 마우스 이탈 시 호출된다.
+  clearHover() {
+    this.canvas.style.cursor = 'default';
+    if (this.game && this.game.clearHover) this.game.clearHover();
+    if (this.scene && this.scene.clearHover) this.scene.clearHover();
+  }
+
   // 교사 설정 저장 + 즉시 반영
   saveSettings(newSettings) {
     this.settings = Object.assign({}, this.settings, newSettings);

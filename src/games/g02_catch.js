@@ -257,6 +257,16 @@ export const g02Catch = {
     }
   },
 
+  // 마우스 hover: 떨어지는 원(터치 판정 반경) 위인지 반환 → 커서 pointer.
+  // 원 자체의 시각 변화는 낙하 중이라 불필요(요구사항). 상태 저장도 없음.
+  onHover(x, y) {
+    for (const f of this.fallers) {
+      if (Math.hypot(x - f.x, y - f.y) <= R + HIT_PAD) return true;
+    }
+    return false;
+  },
+  clearHover() {}, // hover 시각 상태가 없어 초기화할 값 없음(인터페이스 충족용)
+
   onKey() {},
 
   destroy() {

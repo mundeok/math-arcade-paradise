@@ -90,6 +90,7 @@ export const g01Combo = {
     this.problem = null;
     this.choices = []; // [{x,y,w,h,value}]
     this.pressedBtn = null; // 손가락으로 누르고 있는 버튼 (scale 0.95 연출)
+    this.hoverPt = null; // 마우스 hover 위치 (PC 전용, 터치는 null)
     this.mark = null; // {btn, correct} — 정답/오답 순간 연출 대상
     this.pendingWrong = null; // {problem, value} — 오답 연출 후 answerWrong에 넘길 값
     this.phase = 'play'; // 'play' | 'correctAnim' | 'wrongAnim'
@@ -216,12 +217,14 @@ export const g01Combo = {
     const isCorrectMark = isMark && this.mark.correct;
     const isWrongMark = isMark && !this.mark.correct;
     const isPressed = this.phase === 'play' && this.pressedBtn === c;
+    const isHover = this.phase === 'play' && this.hoverPt && hit(c, this.hoverPt.x, this.hoverPt.y);
 
-    // 색상: 정답 초록 / 오답 주황 / 누름 밝게 / 기본 파랑
+    // 색상: 정답 초록 / 오답 주황 / 누름 가장 밝게 / hover 살짝 밝게 / 기본 파랑
     let color = THEME.accent;
     if (isCorrectMark) color = THEME.correct;
     else if (isWrongMark) color = THEME.wrong;
     else if (isPressed) color = '#6bb3ff'; // 누른 순간 밝은 파랑
+    else if (isHover) color = '#5aa6ff'; // hover 시 살짝 밝게
 
     // 스케일: 누름 0.95 / 정답 살짝 튀어오름(1+0.14) / 오답은 그대로(흔들림은 core 화면 흔들림)
     let scale = 1;
@@ -304,6 +307,20 @@ export const g01Combo = {
     }
   },
 
+  // 마우스 hover: 선택지 위인지 반환(커서 pointer). 연출 중엔 hover 없음.
+  onHover(x, y) {
+    if (this.phase !== 'play') {
+      this.hoverPt = null;
+      return false;
+    }
+    this.hoverPt = { x, y };
+    for (const c of this.choices) if (hit(c, x, y)) return true;
+    return false;
+  },
+  clearHover() {
+    this.hoverPt = null;
+  },
+
   onKey(e) {
     // 데스크톱 확인용: 1~4 키로 선택지 선택
     if (this.phase !== 'play') return;
@@ -316,6 +333,7 @@ export const g01Combo = {
     this.problem = null;
     this.choices = [];
     this.pressedBtn = null;
+    this.hoverPt = null;
     this.mark = null;
     this.pendingWrong = null;
   },

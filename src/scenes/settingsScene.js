@@ -13,6 +13,7 @@ export const settingsScene = {
     this.engine = engine;
     this.toast = ''; // "초기화 완료" 등 안내
     this.toastT = 0;
+    this.hoverPt = null;
   },
 
   update(dt) {
@@ -181,6 +182,11 @@ export const settingsScene = {
         ctx.lineWidth = 3;
         ctx.stroke();
       }
+      if (this.hoverPt && hit(c, this.hoverPt.x, this.hoverPt.y)) {
+        roundRect(ctx, c.x, c.y, c.w, c.h, 14);
+        ctx.fillStyle = 'rgba(255,255,255,0.12)';
+        ctx.fill();
+      }
       ctx.fillStyle = '#fff';
       ctx.font = font(c.w > 300 ? 30 : 30);
       ctx.textAlign = 'center';
@@ -193,6 +199,10 @@ export const settingsScene = {
     roundRect(ctx, cb.x, cb.y, cb.w, cb.h, 16);
     ctx.fillStyle = THEME.correct;
     ctx.fill();
+    if (this.hoverPt && hit(cb, this.hoverPt.x, this.hoverPt.y)) {
+      ctx.fillStyle = 'rgba(255,255,255,0.12)';
+      ctx.fill();
+    }
     ctx.fillStyle = '#fff';
     ctx.font = font(38);
     ctx.textAlign = 'center';
@@ -221,6 +231,17 @@ export const settingsScene = {
         return;
       }
     }
+  },
+
+  onHover(x, y) {
+    this.hoverPt = { x, y };
+    const list = this._controls(); // this.closeBtn도 여기서 설정됨
+    if (this.closeBtn && hit(this.closeBtn, x, y)) return true;
+    for (const c of list) if (hit(c, x, y)) return true;
+    return false;
+  },
+  clearHover() {
+    this.hoverPt = null;
   },
 
   onKey(e) {

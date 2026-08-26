@@ -26,6 +26,7 @@ export const resultScene = {
       h: 130,
       label: '🏠 메뉴로',
     };
+    this.hoverPt = null;
   },
 
   update() {},
@@ -108,6 +109,10 @@ export const resultScene = {
       roundRect(ctx, b.x, b.y, b.w, b.h, 24);
       ctx.fillStyle = b === this.retryBtn ? THEME.correct : THEME.panel;
       ctx.fill();
+      if (this.hoverPt && hit(b, this.hoverPt.x, this.hoverPt.y)) {
+        ctx.fillStyle = 'rgba(255,255,255,0.12)';
+        ctx.fill();
+      }
       ctx.fillStyle = '#fff';
       ctx.font = font(42);
       ctx.fillText(b.label, b.x + b.w / 2, b.y + b.h / 2);
@@ -123,6 +128,14 @@ export const resultScene = {
     if (hit(this.menuBtn, x, y)) {
       this.engine.quitToMenu();
     }
+  },
+
+  onHover(x, y) {
+    this.hoverPt = { x, y };
+    return hit(this.retryBtn, x, y) || hit(this.menuBtn, x, y);
+  },
+  clearHover() {
+    this.hoverPt = null;
   },
 
   onKey() {},

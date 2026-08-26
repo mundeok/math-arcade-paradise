@@ -571,10 +571,21 @@ export const g01Combo = {
   render(ctx)  { /* 논리 좌표로 그린다. HUD/오버레이는 엔진이 그림 */ },
   onTouch(x, y, phase) { /* phase: 'start'|'move'|'end'. x,y는 논리 좌표. freeze 중 미호출 */ },
   onKey(e)     { /* 선택적. 키보드 */ },
+  onHover(x, y){ /* 선택적(마우스 전용). (x,y)가 클릭 가능 요소 위면 true 반환 → 엔진이 커서 pointer.
+                   구현 안 해도 정상 동작. 터치에서는 호출되지 않음(hover 잔상 방지). */ },
+  clearHover() { /* 선택적. hover 시각 상태 초기화(터치 시작·마우스 이탈 시 엔진이 호출) */ },
   destroy()    { /* 정리 */ },
 };
 ```
 등록: `src/games/registry.js`의 `IMPLEMENTED` 배열에 한 줄 추가하는 것이 전부다.
+
+**마우스 hover/커서 (SPEC 2.5 접근성 · PC 확인용):**
+- 엔진이 마우스 이동 시 `engine.dispatchHover(x, y)`를 호출한다. 현재 씬/게임의 `onHover(x,y)`(있으면)를
+  불러 반환값이 truthy면 캔버스 커서를 `'pointer'`, 아니면 `'default'`로 바꾼다. ⏸ 버튼·일시정지 메뉴는
+  엔진이 직접 판정한다.
+- **터치 입력은 hover를 발생시키지 않는다.** `touchstart` 시 엔진이 `clearHover()`로 커서·hover 상태를
+  초기화하고, 터치 직후 합성 마우스 이벤트는 input.js가 무시한다(hover 잔상 방지).
+- hover는 **선택적**이다. `onHover`가 없는 게임/씬은 커서가 항상 `'default'`로 유지되며 정상 동작한다.
 
 ### 7.2 engine이 게임에 제공하는 것 (게임은 이것만 쓴다)
 | 접근 | 용도 |

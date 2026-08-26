@@ -7,6 +7,7 @@ export class Input {
     this.engine = engine;
     this.canvas = engine.canvas;
     this.activePointerId = null; // 멀티터치: 첫 포인터만 처리
+    this.lastTouchTs = 0; // 최근 터치 시각 — 터치 후 합성 마우스 이벤트로 hover 되살아나는 것 방지
 
     this._bind();
   }
@@ -36,6 +37,9 @@ export class Input {
       (e) => {
         e.preventDefault();
         this.engine.markUserGesture();
+        // 터치 기기: hover 잔상 방지 — 커서/hover 상태 초기화 + 합성 마우스 이벤트 가드
+        this.lastTouchTs = performance.now();
+        this.engine.clearHover();
         if (this.activePointerId !== null) return;
         const t = e.changedTouches[0];
         this.activePointerId = t.identifier;
@@ -57,6 +61,7 @@ export class Input {
     );
     const endHandler = (e) => {
       e.preventDefault();
+      this.lastTouchTs = performance.now(); // 터치 종료 직후 합성 마우스 이벤트 가드
       const t = this._findActiveTouch(e.changedTouches);
       if (!t) return;
       const { x, y } = this.toLogical(t.clientX, t.clientY);
@@ -75,9 +80,14 @@ export class Input {
       this.engine.dispatchTouch(x, y, 'start');
     });
     c.addEventListener('mousemove', (e) => {
-      if (!mouseDown) return;
+      // 최근 터치 직후의 합성 마우스 이벤트는 무시 (터치 기기 hover 잔상 방지)
+      if (performance.now() - this.lastTouchTs < 600) return;
       const { x, y } = this.toLogical(e.clientX, e.clientY);
-      this.engine.dispatchTouch(x, y, 'move');
+      if (mouseDown) this.engine.dispatchTouch(x, y, 'move');
+      else this.engine.dispatchHover(x, y); // 버튼 위 hover → 커서 pointer + 시각 반응
+    });
+    c.addEventListener('mouseleave', () => {
+      if (!mouseDown) this.engine.clearHover(); // 캔버스 밖으로 나가면 커서/ hover 해제
     });
     window.addEventListener('mouseup', (e) => {
       if (!mouseDown) return;
