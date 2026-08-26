@@ -243,7 +243,7 @@ export class Engine {
     if (res.combo > 0 && res.combo % 8 === 0) this.problemGenerator.raiseLevel();
 
     this.sound.play('correct');
-    if (res.milestone) this._playComboMilestone(res.milestone);
+    this._playComboMilestone(res.combo, res.milestone);
     if (res.recovered) this.ui.showComboText('LIFE +1', false);
 
     this.markQuestionStart();
@@ -291,13 +291,26 @@ export class Engine {
     return this.answerWrong(problem, null, opts);
   }
 
-  _playComboMilestone(m) {
-    const map = { 5: 'GREAT!', 10: 'PERFECT!', 20: 'AMAZING!', 30: 'LEGEND!' };
-    const text = map[m] || 'COMBO!';
-    this.ui.showComboText(text, m >= 20);
+  // 콤보 마일스톤 연출을 일원 관리한다(SPEC §7.1 comboMilestones).
+  //   combo:         방금 정답으로 갱신된 현재 콤보 값
+  //   coreMilestone: scoreManager가 알린 core 기본 마일스톤(5/10/20/30 최초 도달, 없으면 null)
+  // 게임 객체에 comboMilestones[combo] 고유 문구가 정의돼 있으면 그것을 표시하고 core 기본 문구는
+  // 생략한다(중복 제거). 고유 문구가 없으면 core 기본 문구만 쓴다. comboMilestones가 없는 게임은
+  // 기존과 동일하게 core 기본 문구만 동작한다(하위 호환).
+  _playComboMilestone(combo, coreMilestone) {
+    const custom = this.game && this.game.comboMilestones ? this.game.comboMilestones[combo] : null;
+    let text = null;
+    if (custom) {
+      text = custom; // 게임 고유 문구 우선 — core 기본 문구는 표시하지 않는다
+    } else if (coreMilestone != null) {
+      text = { 5: 'GREAT!', 10: 'PERFECT!', 20: 'AMAZING!', 30: 'LEGEND!' }[coreMilestone] || 'COMBO!';
+    }
+    if (!text) return;
+    const big = combo >= 20;
+    this.ui.showComboText(text, big);
     this.sound.play('combo');
-    if (m >= 10) {
-      this.particles.emit(LOGICAL_W / 2, LOGICAL_H * 0.4, m >= 20 ? 'explode' : 'sparkle', THEME.gold, m >= 20 ? 40 : 20);
+    if (combo >= 10) {
+      this.particles.emit(LOGICAL_W / 2, LOGICAL_H * 0.4, big ? 'explode' : 'sparkle', THEME.gold, big ? 40 : 20);
     }
   }
 

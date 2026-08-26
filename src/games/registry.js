@@ -5,12 +5,16 @@
 import { dummyGame } from './_dummy.js';
 import { g01Combo } from './g01_combo.js';
 import { g02Catch } from './g02_catch.js';
+import { g09Balloon } from './g09_balloon.js';
+import { g06Stack } from './g06_stack.js';
 
-// 실제로 구현되어 플레이 가능한 게임들 (Phase 0: 더미 1개 / Phase 1: +2종)
+// 실제로 구현되어 플레이 가능한 게임들 (Phase 0: 더미 1개 / Phase 1: +2종 / Phase 2: +2종)
 export const IMPLEMENTED = [
   dummyGame,
   g01Combo, // Phase 1
   g02Catch, // Phase 1
+  g09Balloon, // Phase 2
+  g06Stack, // Phase 2
 ];
 
 // 메뉴 표시용 10종 카탈로그 (SPEC §4). 구현 전 게임은 "준비 중"으로 뜬다.

@@ -28,6 +28,8 @@ export const g02Catch = {
   category: '반사신경',
   maxLevel: 3, // 출제 상한 Lv3 (SPEC 2.1 반사신경형)
   blankRatio: 0, // 반사신경형은 빈칸 미출제
+  // 게임 고유 콤보 문구(그 외 5/10/20/30은 core 기본). core가 일원 관리(SPEC §7.1).
+  comboMilestones: { 7: 'NICE!', 15: 'AWESOME!' },
 
   tutorial: {
     text: '떨어지는 숫자 중에서 답을 찾아 콕 눌러!',
@@ -246,10 +248,7 @@ export const g02Catch = {
       e.particles.emit(target.x, target.y, 'pop', THEME.gold, 10);
       e.sound.play('pop');
       this.popEffects.push({ x: target.x, y: target.y, value: target.value, t: 0, dur: 0.6 });
-      // 게임 고유 콤보 연출 (그 외 5/10/20/30은 core 기본 연출)
-      const combo = e.scoreManager.combo;
-      if (combo === 7) e.ui.showComboText('NICE!', false);
-      else if (combo === 15) e.ui.showComboText('AWESOME!', false);
+      // 콤보 문구(NICE!/AWESOME! 포함)는 comboMilestones로 core가 표시한다.
       this._startWave();
     } else {
       // 오답 터치: 라이프 -1 + 콤보 리셋 + 정답 표시
