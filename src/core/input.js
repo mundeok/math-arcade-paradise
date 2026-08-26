@@ -17,10 +17,12 @@ export class Input {
     // 캔버스 요소 내부의 CSS 픽셀 위치
     const cssX = clientX - rect.left;
     const cssY = clientY - rect.top;
-    // engine이 계산한 렌더 스케일/레터박스 오프셋(CSS 픽셀 기준)으로 역변환
-    const { scale, offsetX, offsetY } = this.engine.viewport;
-    const lx = (cssX - offsetX) / scale;
-    const ly = (cssY - offsetY) / scale;
+    // ⚠️ rect.left/top에는 이미 레터박스 오프셋이 포함돼 있다
+    //    (engine.resize가 canvas.style.left/top를 offsetX/offsetY로 배치함).
+    //    따라서 여기서 offset을 다시 빼면 이중 차감이 되어 좌표가 밀린다 → rect 기준만 사용한다.
+    const { scale } = this.engine.viewport;
+    const lx = cssX / scale;
+    const ly = cssY / scale;
     return { x: lx, y: ly };
   }
 
