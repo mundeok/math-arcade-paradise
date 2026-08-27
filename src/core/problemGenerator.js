@@ -103,7 +103,8 @@ export class ProblemGenerator {
   // ── 다음 문제 ───────────────────────────────────────────
   // maxLevel: 게임별 출제 레벨 상한 (SPEC 2.1 표). 실제 출제 레벨 = min(현재레벨, maxLevel)
   // blankRatio: 빈칸형(□) 출제 비율 (게임 유형별로 다름, 기본 0.25 — SPEC 2.1)
-  nextProblem({ maxLevel = 5, blankRatio = 0.25 } = {}) {
+  // opMode: 게임별 연산 고정('multiply'|'divide'|'mixed', 기본 'mixed'). 교사 설정이 특정 연산이면 교사 우선.
+  nextProblem({ maxLevel = 5, blankRatio = 0.25, opMode = 'mixed' } = {}) {
     this.served += 1;
 
     // 1) 복습 큐에서 due가 된 문제가 있으면 우선 출제 (중복 방지 예외)
@@ -118,7 +119,7 @@ export class ProblemGenerator {
     const effLevel = clamp(this.currentLevel, 1, Math.max(1, maxLevel));
     let problem = null;
     for (let attempt = 0; attempt < 30; attempt++) {
-      const cand = this.generateForLevel(effLevel, blankRatio);
+      const cand = this.generateForLevel(effLevel, blankRatio, opMode);
       if (!cand) continue;
       const key = problemKey(cand);
       if (!this.recentKeys.includes(key)) {
@@ -127,7 +128,7 @@ export class ProblemGenerator {
       }
     }
     // 30번 시도해도 다 겹치면(문제 공간이 좁은 경우) 그냥 마지막 후보 사용
-    if (!problem) problem = this.generateForLevel(effLevel, blankRatio);
+    if (!problem) problem = this.generateForLevel(effLevel, blankRatio, opMode);
 
     // 최근 목록 갱신 (최대 5개)
     this.recentKeys.push(problemKey(problem));
@@ -142,8 +143,11 @@ export class ProblemGenerator {
   //  - multiply: 곱셈만 사다리 (× 기호만)
   //  - divide:   나눗셈만 사다리 (÷ 기호만, □×형 미출제)
   //  - mixed:    혼합 사다리 (□×, ÷□ 빈칸 모두 가능)
-  generateForLevel(level, blankRatio = 0.25) {
-    const mode = this.settings.operation || 'mixed';
+  // opMode: 게임이 요청한 연산 고정. 단 교사 설정이 특정 연산(multiply/divide)이면 그것이 우선하고,
+  //         교사 설정이 'mixed'(기본)일 때만 게임의 opMode를 따른다. (SPEC 3.9 — 교사 설정 우선)
+  generateForLevel(level, blankRatio = 0.25, opMode = 'mixed') {
+    const teacher = this.settings.operation || 'mixed';
+    const mode = teacher !== 'mixed' ? teacher : opMode || 'mixed';
     if (mode === 'multiply') return this.genMultiplyOnly(level);
     if (mode === 'divide') return this.genDivideOnly(level, blankRatio);
     return this.genMixed(level, blankRatio);
@@ -291,54 +295,58 @@ export class ProblemGenerator {
 
   // ── 오답지 생성 (SPEC 2.2) ───────────────────────────────
   // count: 필요한 오답 개수. closeness: 0~1, 높을수록 정답에 가까운 오답.
+  // ⚠️ 반드시 지키는 두 불변식:
+  //   1) 나눗셈 오답은 '몫(answer)' 기준으로만 만든다. 피제수(a)로 만들면 42÷6=7의 오답이
+  //      42×7=294 처럼 몫과 무관한 큰 수가 나온다(실제 발생 버그). a·(a±)는 절대 쓰지 않는다.
+  //   2) 오답은 정답과 '같은 자릿수'다. 답 한 자리 → 오답 한 자리(1~9), 두 자리 → 두 자리(10~99),
+  //      세 자리 → 세 자리… 계산 없이 자릿수만으로 정답을 골라내는 것을 막는다.
   makeDistractors(problem, count, closeness = 0.5) {
     const answer = problem.answer;
     const a = problem.a;
     const b = problem.b;
     const isDiv = problem.op === '÷' && problem.blank == null;
     const lowLevel = (problem.level || 1) <= 2;
+    const nDigits = digitCount(answer);
 
-    // 답 자릿수/유형별 분기 (SPEC 2.2 확장)
-    if (isDiv && answer >= 10) return this._distractorsDivTwoDigit(problem, count);
-    if (!isDiv && answer >= 100) return this._distractorsBigProduct(problem, count);
-
-    // 이하: 답이 두 자리 이하인 경우 기존 전략
-    const candidates = new Set();
-
-    // 전략 1: 인접 구구단 값 (a±, b±의 곱) — 가까운 오답
-    for (const da of [-1, 0, 1]) {
-      for (const db of [-1, 0, 1]) {
-        if (da === 0 && db === 0) continue;
-        const na = a + da;
-        const nb = b + db;
-        if (na > 0 && nb > 0) candidates.add(na * nb);
-      }
+    // 세 자리 이상 곱셈: 올림 실수 위주 전용 전략(자릿수 일치로 마무리). 나눗셈 몫은 두 자리 이하뿐이다.
+    if (!isDiv && nDigits >= 3) {
+      return this._finalizeSameDigits(this._bigProductCandidates(problem), answer, count);
     }
-    // 전략 6: 나눗셈 몫 오차 (±1, ±2)
+
+    const cands = new Set();
+
     if (isDiv) {
-      for (const d of [-2, -1, 1, 2]) candidates.add(answer + d);
+      // 나눗셈: 반드시 몫(answer) 기준. 피제수(a)는 쓰지 않는다.
+      for (const d of [-2, -1, 1, 2]) cands.add(answer + d); // 전략6: 몫 오차 ±1,±2
+      cands.add(b); // 나누는 수와 몫 혼동(자릿수 다르면 아래 필터가 제거)
+      if (nDigits >= 2) {
+        const rev = reverseDigits(answer);
+        if (rev !== answer) cands.add(rev); // 전략2: 자릿수 뒤집기(두 자리 답)
+        for (const d of [-10, 10, -20, 20]) cands.add(answer + d); // 전략5: ±10(두 자리 답만)
+      }
+    } else {
+      // 곱셈: a,b가 실제 인수 → 인접 구구단 값이 유효(전략1)
+      for (const da of [-1, 0, 1]) {
+        for (const db of [-1, 0, 1]) {
+          if (da === 0 && db === 0) continue;
+          const na = a + da;
+          const nb = b + db;
+          if (na > 0 && nb > 0) cands.add(na * nb);
+        }
+      }
+      const rev = reverseDigits(answer); // 전략2: 자릿수 뒤집기
+      if (rev !== answer) cands.add(rev);
+      if (lowLevel) cands.add(a + b); // 전략3: 덧셈 혼동(Lv1~2)
+      for (const d of [-2, -1, 1, 2]) cands.add(answer + d); // 전략4: ±1,±2
+      if (nDigits >= 2) for (const d of [-10, 10, -20, 20]) cands.add(answer + d); // 전략5: ±10(두 자리 답만)
     }
-    // 전략 2: 자릿수 뒤집기
-    const rev = reverseDigits(answer);
-    if (rev !== answer) candidates.add(rev);
-    // 전략 3: 덧셈 혼동 값 (Lv1~2에서만)
-    if (lowLevel) candidates.add(a + b);
-    // 전략 4: ±1, ±2 근접값 (가까움)
-    for (const d of [-2, -1, 1, 2]) candidates.add(answer + d);
-    // 전략 5: ±10 근접값 (멂)
-    for (const d of [-10, 10, -20, 20]) candidates.add(answer + d);
 
-    // 유효성: 양의 정수 & 정답과 다름
-    let pool = [...candidates].filter((v) => Number.isInteger(v) && v > 0 && v !== answer);
+    // 유효성: 양의 정수 · 정답과 다름 · 정답과 같은 자릿수(불변식 2)
+    let pool = [...cands].filter((v) => Number.isInteger(v) && v > 0 && v !== answer && digitCount(v) === nDigits);
 
     // closeness에 따라 정렬 (가까운 것 우선/먼 것 우선)
     pool.sort((x, y) => Math.abs(x - answer) - Math.abs(y - answer));
-    if (closeness < 0.5) {
-      // 콤보 낮음 → 먼 오답 우선 (SPEC 2.2: 낮을 때 멀리)
-      pool.reverse();
-    } else {
-      // 높음 → 가까운 오답 우선. 단, 완전 결정적이면 지루하니 상위군에서 셔플
-    }
+    if (closeness < 0.5) pool.reverse(); // 콤보 낮음 → 먼 오답 우선 (SPEC 2.2)
 
     // 상위 후보군에서 약간의 무작위성 부여
     const topN = Math.min(pool.length, count + 4);
@@ -350,20 +358,13 @@ export class ProblemGenerator {
       if (!result.includes(v)) result.push(v);
     }
 
-    // 후보 부족 시: 정답 ±무작위(1~15)로 채운다 (SPEC 2.2 제약)
-    let guard = 0;
-    while (result.length < count && guard < 200) {
-      guard++;
-      const delta = ri(1, 15) * (Math.random() < 0.5 ? -1 : 1);
-      const v = answer + delta;
-      if (v > 0 && v !== answer && !result.includes(v)) result.push(v);
-    }
+    // 후보 부족 시: 정답과 같은 자릿수 범위 안에서만 채운다(자릿수 이탈 금지)
+    this._fillSameDigits(result, answer, count);
     return result.slice(0, count);
   }
 
-  // 답이 세 자리 이상인 곱셈 오답: 올림 관련 실수 위주.
-  // ⚠️ ±1, ±2, 자릿수 뒤집기 금지.
-  _distractorsBigProduct(problem, count) {
+  // 답이 세 자리 이상인 곱셈 오답 후보: 올림 관련 실수 위주. (±1,±2·자릿수 뒤집기는 넣지 않는다)
+  _bigProductCandidates(problem) {
     const { a, b, answer } = problem;
     const cands = new Set();
 
@@ -384,58 +385,35 @@ export class ProblemGenerator {
     }
     // ±10, ±100
     for (const d of [-10, 10, -100, 100]) cands.add(answer + d);
+    return [...cands];
+  }
 
-    const rev = reverseDigits(answer);
-    // 유효성: 양의 정수·정답과 다름·±1/±2 및 자릿수 뒤집기 제외
-    const pool = [...cands].filter(
-      (v) => Number.isInteger(v) && v > 0 && v !== answer && Math.abs(v - answer) > 2 && v !== rev
-    );
-    const result = shuffle(pool).slice(0, count);
-
-    // 부족 시 ±10 단위로 채움 (±1,±2 회피)
-    let guard = 0;
-    while (result.length < count && guard < 200) {
-      guard++;
-      const v = answer + ri(1, 15) * 10 * (Math.random() < 0.5 ? -1 : 1);
-      if (v > 0 && v !== answer && !result.includes(v)) result.push(v);
+  // 후보를 '정답과 같은 자릿수'로만 거르고(불변식 2) 부족분을 같은 자릿수 범위에서 채운다.
+  _finalizeSameDigits(rawCands, answer, count) {
+    const nDigits = digitCount(answer);
+    const result = [];
+    for (const v of shuffle([...new Set(rawCands)])) {
+      if (result.length >= count) break;
+      if (Number.isInteger(v) && v > 0 && v !== answer && digitCount(v) === nDigits && !result.includes(v)) result.push(v);
     }
+    this._fillSameDigits(result, answer, count);
     return result.slice(0, count);
   }
 
-  // 몫이 두 자리인 나눗셈 오답: 혼동·자릿수 실수 위주.
-  // ⚠️ ±1은 최대 1개.
-  _distractorsDivTwoDigit(problem, count) {
-    const { a, b, answer } = problem;
-    const cands = [];
-    const push = (v) => {
-      if (Number.isInteger(v) && v > 0 && v !== answer && !cands.includes(v)) cands.push(v);
-    };
-    push(b); // 나누는 수와 몫 혼동 (60÷5=12 → 5)
-    push(Math.floor(answer / 2)); // ÷2 오류 (12 → 6)
-    push(answer * 2); // ×2 오류 (12 → 24)
-    push(a % 10 === 0 ? Math.floor(a / 10) : null); // 자릿수 착각 (60÷5 → 6)
-    push(Math.floor(answer / 10)); // 자릿수 착각 (12 → 1)
-    push(reverseDigits(answer)); // 자릿수 뒤집기 (12 → 21)
-    push(Math.random() < 0.5 ? answer - 1 : answer + 1); // ±1 후보
-
-    // 선택: |v-answer|≤1(±1)인 값은 최대 1개만 채택 (제수가 우연히 답±1인 경우 포함)
-    const result = [];
-    let near1Used = 0;
-    for (const v of shuffle(cands)) {
-      if (result.length >= count) break;
-      const near1 = Math.abs(v - answer) <= 1;
-      if (near1 && near1Used >= 1) continue;
-      result.push(v);
-      if (near1) near1Used++;
-    }
-    // 부족 시 ±(2~12)로 채움 (추가 ±1 금지)
+  // 정답과 같은 자릿수 범위(1~9 / 10~99 / 100~999 …) 안에서 정답 근처 값으로 부족분을 채운다.
+  //   세 자리 이상은 ±1,±2 같은 자명한 근접값을 피하려 최소 간격을 10으로 둔다.
+  _fillSameDigits(result, answer, count) {
+    const nDigits = digitCount(answer);
+    const [lo, hi] = digitRange(nDigits);
+    const minDelta = nDigits >= 3 ? 10 : 1;
+    const span = Math.max(minDelta + 1, hi - lo);
     let guard = 0;
-    while (result.length < count && guard < 200) {
+    while (result.length < count && guard < 400) {
       guard++;
-      const v = answer + ri(2, 12) * (Math.random() < 0.5 ? -1 : 1);
-      if (v > 0 && v !== answer && !result.includes(v)) result.push(v);
+      const delta = ri(minDelta, span) * (Math.random() < 0.5 ? -1 : 1);
+      const v = answer + delta;
+      if (v >= lo && v <= hi && v !== answer && !result.includes(v)) result.push(v);
     }
-    return result.slice(0, count);
   }
 }
 
@@ -454,6 +432,18 @@ function hasCarry(a, b) {
 
 function reverseDigits(n) {
   return parseInt(String(n).split('').reverse().join(''), 10);
+}
+
+// 값의 자릿수(양의 정수 기준). 오답 자릿수 일치 판정에 쓴다.
+function digitCount(n) {
+  return String(Math.abs(Math.trunc(n))).length;
+}
+
+// 자릿수 d의 정수 범위 [lo, hi]. 1→[1,9], 2→[10,99], 3→[100,999] …
+function digitRange(d) {
+  const lo = d <= 1 ? 1 : Math.pow(10, d - 1);
+  const hi = Math.pow(10, d) - 1;
+  return [lo, hi];
 }
 
 function mkProblem(a, b, op, answer, remainder, level) {

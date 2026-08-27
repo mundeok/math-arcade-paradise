@@ -35,6 +35,7 @@ export const g01Combo = {
   category: '선택형',
   maxLevel: 4, // 출제 상한 Lv4 (SPEC 2.1 판단형)
   blankRatio: 0.25, // 판단형 빈칸 비율
+  opMode: 'multiply', // 이 게임은 곱셈만 출제 (교사 설정이 특정 연산이면 교사 우선)
 
   tutorial: {
     text: '문제의 답을 찾아 눌러봐! 빠를수록 점수가 올라가!',
@@ -113,7 +114,7 @@ export const g01Combo = {
 
   _loadProblem() {
     const e = this.engine;
-    this.problem = e.problemGenerator.nextProblem({ maxLevel: this.maxLevel, blankRatio: this.blankRatio });
+    this.problem = e.problemGenerator.nextProblem({ maxLevel: this.maxLevel, blankRatio: this.blankRatio, opMode: this.opMode });
 
     // 오답 근접도(축 B): 콤보 0→0.2 / 10→0.5 / 20+→0.8
     const closeness = Math.max(0.2, Math.min(0.8, 0.2 + 0.03 * e.scoreManager.combo));

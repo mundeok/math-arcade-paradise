@@ -28,6 +28,7 @@ export const g02Catch = {
   category: '반사신경',
   maxLevel: 3, // 출제 상한 Lv3 (SPEC 2.1 반사신경형)
   blankRatio: 0, // 반사신경형은 빈칸 미출제
+  opMode: 'multiply', // 이 게임은 곱셈만 출제 (교사 설정이 특정 연산이면 교사 우선)
   // 게임 고유 콤보 문구(그 외 5/10/20/30은 core 기본). core가 일원 관리(SPEC §7.1).
   comboMilestones: { 7: 'NICE!', 15: 'AWESOME!' },
 
@@ -94,7 +95,7 @@ export const g02Catch = {
 
   _startWave() {
     const e = this.engine;
-    this.problem = e.problemGenerator.nextProblem({ maxLevel: this.maxLevel, blankRatio: this.blankRatio });
+    this.problem = e.problemGenerator.nextProblem({ maxLevel: this.maxLevel, blankRatio: this.blankRatio, opMode: this.opMode });
 
     const wrongCount = this._wrongCount();
     // 반사신경형이라 오답 근접도는 낮게 유지(빠르게 구분 가능해야 함) — 콤보 따라 소폭 상승

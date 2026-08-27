@@ -36,6 +36,7 @@ export const g06Stack = {
   category: '축적형',
   maxLevel: 4, // 출제 상한 Lv4 (SPEC 2.1 판단형)
   blankRatio: 0.25, // 판단형 빈칸 비율
+  opMode: 'divide', // 이 게임은 나눗셈만 출제 (교사 설정이 특정 연산이면 교사 우선)
   // 게임 고유 콤보 문구(그 외 5/20/30은 core 기본). core가 일원 관리(SPEC §7.1).
   comboMilestones: { 10: 'STEADY!' },
 
@@ -142,7 +143,7 @@ export const g06Stack = {
 
   _startRound() {
     const e = this.engine;
-    this.problem = e.problemGenerator.nextProblem({ maxLevel: this.maxLevel, blankRatio: this.blankRatio });
+    this.problem = e.problemGenerator.nextProblem({ maxLevel: this.maxLevel, blankRatio: this.blankRatio, opMode: this.opMode });
 
     // 오답 근접도(축 B): 콤보 오를수록 헷갈리는 수(48/42/54/49류) 등장
     const closeness = Math.min(0.8, 0.2 + 0.025 * e.scoreManager.combo);

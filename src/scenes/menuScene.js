@@ -3,6 +3,7 @@
 // 게임별 최고점 미리보기 + 업적 뱃지 표시. 우측 상단 ⚙️는 1.5초 롱프레스로 진입.
 
 import { LOGICAL_W, LOGICAL_H, SAFE, THEME, font, roundRect, hit } from '../core/ui.js';
+import { L } from '../core/layout.js';
 import { ScoreManager } from '../core/scoreManager.js';
 import { IMPLEMENTED, CATALOG, getGameById } from '../games/registry.js';
 import { dummyGame } from '../games/_dummy.js';
@@ -43,6 +44,8 @@ export const menuScene = {
         name: it.name,
         emoji: it.emoji,
         active,
+        // 연산 배지용: 게임 정의(게임 파일)에서만 opMode를 읽는다(단일 출처). 비활성이면 null.
+        opMode: getGameById(it.id)?.opMode ?? null,
         highScore: ScoreManager.getHighScores(it.id)[0]?.score ?? null,
         achievements: ScoreManager.getAchievements(it.id),
       };
@@ -121,6 +124,8 @@ export const menuScene = {
         ctx.fillStyle = 'rgba(255,255,255,0.12)';
         ctx.fill();
       }
+      // 연산 배지 (× / ÷) — hover 오버레이 위에 선명하게
+      this._drawOpBadge(ctx, c);
     }
 
     // 리포트 버튼
@@ -135,6 +140,30 @@ export const menuScene = {
     ctx.fillStyle = '#fff';
     ctx.font = font(38);
     ctx.fillText(r.label, r.x + r.w / 2, r.y + r.h / 2);
+  },
+
+  // 연산 배지: 셀 우측 상단에 × 또는 ÷ 칩. mixed/미지정·비활성 셀은 표시하지 않는다.
+  //   좌표·크기·폰트는 L 헬퍼로 계산(절대 픽셀 금지). 업적 뱃지는 좌측 상단이라 겹치지 않고,
+  //   이름(중앙)·최고점(하단)도 가리지 않는다.
+  _drawOpBadge(ctx, c) {
+    if (!c.active) return;
+    const sym = c.opMode === 'multiply' ? '×' : c.opMode === 'divide' ? '÷' : null;
+    if (!sym) return; // mixed 또는 opMode 없음 → 배지 없음
+    const r = L.gu(0.75);
+    const inset = L.gu(0.95);
+    const bx = c.x + c.w - inset; // 우측 상단
+    const by = c.y + inset;
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(bx, by, r, 0, Math.PI * 2);
+    ctx.fillStyle = THEME.gold;
+    ctx.fill();
+    ctx.fillStyle = THEME.bg; // 금색 칩 위 어두운 글리프(대비 확보)
+    ctx.font = font(L.font(0.032));
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(sym, bx, by + L.gu(0.03));
+    ctx.restore();
   },
 
   _drawBadges(ctx, c) {

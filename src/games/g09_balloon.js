@@ -42,6 +42,7 @@ export const g09Balloon = {
   category: '개념확장',
   maxLevel: 3, // 출제 상한 Lv3 (SPEC 2.1 반사신경/개념확장형)
   blankRatio: 0, // 빈칸 미출제 → 문제는 항상 'a op b' 형태, 답이 하나의 값
+  opMode: 'multiply', // 이 게임은 곱셈만 출제 (교사 설정이 특정 연산이면 교사 우선)
   // 게임 고유 콤보 문구(그 외 10/20/30은 core 기본). core가 일원 관리(SPEC §7.1).
   //   콤보는 '라운드 완성' 단위로 오르므로 여기 값들도 완성 라운드 수 기준이다.
   comboMilestones: { 5: 'BURST!', 15: 'EXPLOSION!', 25: 'FIREWORKS!' },
@@ -131,7 +132,7 @@ export const g09Balloon = {
 
   _startRound() {
     const e = this.engine;
-    this.problem = e.problemGenerator.nextProblem({ maxLevel: this.maxLevel, blankRatio: this.blankRatio });
+    this.problem = e.problemGenerator.nextProblem({ maxLevel: this.maxLevel, blankRatio: this.blankRatio, opMode: this.opMode });
     const answer = this.problem.answer;
     const combo = e.scoreManager.combo;
 
