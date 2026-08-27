@@ -7,6 +7,7 @@ import { ProblemGenerator } from './problemGenerator.js';
 import { ScoreManager } from './scoreManager.js';
 import { SoundManager } from './soundManager.js';
 import { ParticleSystem } from './particle.js';
+import { Fever } from './fever.js';
 import { Session } from './session.js';
 import { UI, LOGICAL_W, LOGICAL_H, THEME, font, roundRect } from './ui.js';
 import { storage } from './storage.js';
@@ -61,6 +62,7 @@ export class Engine {
     this.scene = null; // 현재 씬 객체 (PLAYING이 아닐 때)
     this.game = null; // 현재 게임 객체 (PLAYING/PAUSED)
     this.pendingGame = null; // 튜토리얼→플레이로 넘길 게임
+    this.fever = null; // 피버 시스템(게임이 fever 필드로 opt-in 하면 startGame에서 생성)
 
     // 정답 표시 오버레이(1.2초 완전 정지) 상태
     this.freeze = { active: false, timer: 0, dur: 1.2, problem: null, onResume: null, gameOver: false };
@@ -197,6 +199,9 @@ export class Engine {
     this.particles.clear();
     this.freeze.active = false;
 
+    // 피버 opt-in: 게임의 정적 fever 필드를 init 전에 읽어 생성(게임 인스턴스 상태 오염 방지).
+    this.fever = this._makeFever(game.fever);
+
     this.state = STATE.PLAYING;
     game.init(this);
     this.markQuestionStart();
@@ -236,15 +241,26 @@ export class Engine {
   // 정답: 점수·콤보·라이프회복·연출·복습큐·레벨상향까지 일괄 처리
   answerCorrect(problem, userAnswer, points) {
     const rMs = this.responseMs;
-    const res = this.scoreManager.registerCorrect(points);
+    // 피버 opt-in 시 점수 배수 자동 적용(피버 없으면 그대로 — 하위 호환)
+    const pts = this.fever && this.fever.active ? Math.round(points * this.fever.scoreMultiplier) : points;
+    const res = this.scoreManager.registerCorrect(pts);
     this.session.record({ gameId: this.game.id, question: problem, userAnswer, correct: true, responseMs: rMs });
     this.problemGenerator.reportResult(problem, true);
     // 레벨 상향: 콤보가 8의 배수 도달 시 (SPEC 2.1)
     if (res.combo > 0 && res.combo % 8 === 0) this.problemGenerator.raiseLevel();
 
-    this.sound.play('correct');
+    // 피버 게이지 +정답 / 종료 배너용 점수 누적 (opt-in 게임만)
+    if (this.fever) {
+      this.fever.gainCorrect();
+      this.fever.addPoints(pts);
+    }
+
+    // 정답음: 콤보에 따라 반음 상승(재미 표준). 모든 게임 자동 적용.
+    this.sound.playCorrect(res.combo, { boost: !!(this.fever && this.fever.active) });
     this._playComboMilestone(res.combo, res.milestone);
     if (res.recovered) this.ui.showComboText('LIFE +1', false);
+    // 위기 회복 피드백: 라이프1에서 정답 → 테두리 잠깐 밝힘("버텼다")
+    if (this.scoreManager.lives <= 1) this.ui.crisisHold();
 
     this.markQuestionStart();
     return res;
@@ -266,6 +282,9 @@ export class Engine {
     this.session.record({ gameId: this.game.id, question: problem, userAnswer, correct: false, responseMs: rMs, missed });
     // 레벨 하향·복습큐 등록 (반사신경 '놓침'은 affectLevel:false로 제외)
     if (affectLevel) this.problemGenerator.reportResult(problem, false);
+
+    // 피버 게이지 -오답 (opt-in 게임만). '놓침'(missed:true)은 오답 아니므로 게이지 영향 없음.
+    if (this.fever && !missed) this.fever.gainWrong();
 
     // freeze:false → 게임을 멈추지 않고 즉시 반환. 실패음도 재생하지 않는다(시각 연출만).
     if (!freeze) {
@@ -289,6 +308,34 @@ export class Engine {
   // 시간초과를 오답과 동일하게 처리하고 싶을 때 사용하는 별칭
   timeUp(problem, opts = {}) {
     return this.answerWrong(problem, null, opts);
+  }
+
+  // 게임의 fever 필드로 피버 시스템을 만든다(없으면 null).
+  //   true → 기본 설정 / 설정객체 → 세부 조정. ⚠️ 게임 인스턴스가 런타임에 this.fever(=상태객체)를
+  //   쓰는 경우와 구분하기 위해, active 키가 있는 객체(=런타임 상태)는 설정으로 취급하지 않는다.
+  _makeFever(cfg) {
+    if (cfg === true) return new Fever({});
+    if (cfg && typeof cfg === 'object' && !('active' in cfg)) return new Fever(cfg);
+    return null;
+  }
+
+  // 니어미스 보상(재미 표준): 판정은 게임이 하고 보상만 core가 준다(SPEC §7).
+  //   +40점(피버 중이면 배수) + 피버 게이지 +5 + "아슬아슬!" 문구 + 큰 파티클.
+  //   ⚠️ 한 문제당 1회 제한은 게임이 관리한다.
+  reportNearMiss(x, y) {
+    const base = 40;
+    const pts = this.fever && this.fever.active ? Math.round(base * this.fever.scoreMultiplier) : base;
+    this.scoreManager.addPoints(pts);
+    if (this.fever) {
+      this.fever.gainNearMissBonus();
+      this.fever.addPoints(pts);
+    }
+    this.ui.showComboText('아슬아슬!', false);
+    if (x != null && y != null) {
+      this.particles.emit(x, y, 'explode', THEME.correct, 26); // 일반 정답보다 약간 큰 파티클
+      this.particles.emit(x, y, 'sparkle', THEME.gold, 12);
+    }
+    return pts;
   }
 
   // 콤보 마일스톤 연출을 일원 관리한다(SPEC §7.1 comboMilestones).
@@ -361,6 +408,7 @@ export class Engine {
         this.particles.update(dt);
       } else {
         if (this.game && this.game.update) this.game.update(dt);
+        if (this.fever) this.fever.update(dt); // 피버 타이머(정지 중엔 진행 안 함)
         this.particles.update(dt);
       }
     } else {
@@ -393,6 +441,7 @@ export class Engine {
           showPause: this.state === STATE.PLAYING,
         });
         this.ui.renderComboOverlays(ctx);
+        this.ui.drawCrisisBorder(ctx); // 위기 테두리(재미 표준, 모든 게임 자동)
         if (this.freeze.active) {
           this.ui.renderAnswerFeedback(ctx, this.freeze.problem, this.freeze.timer / this.freeze.dur);
         }

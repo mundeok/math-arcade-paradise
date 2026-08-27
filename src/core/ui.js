@@ -3,6 +3,7 @@
 // 정오답 피드백은 반드시 색 + 아이콘(⭕/❌) + 모양 변화 3중으로 표현(적록색약 대응).
 
 import { fullEquationLines } from './mathText.js';
+import { L } from './layout.js';
 
 // 시스템 폰트 스택만 사용 (외부 폰트 금지 — SPEC 1.1)
 export const FONT_STACK = '-apple-system, "Noto Sans KR", "Malgun Gothic", sans-serif';
@@ -40,6 +41,14 @@ export class UI {
     this.flashColor = 'rgba(255,255,255,0.5)';
 
     this.pauseRect = { x: LOGICAL_W - SAFE - 96, y: SAFE, w: 96, h: 96 };
+
+    // 점수 카운트업(재미 표준): 실제 score로 0.3초에 걸쳐 수렴하는 표시값
+    this.displayScore = 0;
+    this.targetScore = 0;
+    // 위기 연출(재미 표준): 라이프1 정답 시 초록 밝힘 타이머 + 긴장음 주기 + 맥박용 시간
+    this.crisisHoldT = 0;
+    this.crisisTone = 0;
+    this.time = 0;
   }
 
   reset() {
@@ -47,9 +56,15 @@ export class UI {
     this.shakeTime = 0;
     this.shakeMag = 0;
     this.flashTime = 0;
+    this.displayScore = 0;
+    this.targetScore = 0;
+    this.crisisHoldT = 0;
+    this.crisisTone = 0;
+    this.time = 0;
   }
 
   update(dt) {
+    this.time += dt;
     for (let i = this.comboOverlays.length - 1; i >= 0; i--) {
       const o = this.comboOverlays[i];
       o.t += dt;
@@ -57,6 +72,62 @@ export class UI {
     }
     if (this.shakeTime > 0) this.shakeTime = Math.max(0, this.shakeTime - dt);
     if (this.flashTime > 0) this.flashTime = Math.max(0, this.flashTime - dt);
+
+    // 점수 카운트업: 0.3초 수렴(지수 보간). 오차가 작으면 스냅.
+    const k = 1 - Math.pow(0.0015, dt / 0.3);
+    this.displayScore += (this.targetScore - this.displayScore) * k;
+    if (Math.abs(this.targetScore - this.displayScore) < 0.5) this.displayScore = this.targetScore;
+
+    // 위기 연출: 라이프1에서 정답 시 초록 밝힘 감쇠 + 긴장음(플레이 중·효과음 ON일 때만)
+    if (this.crisisHoldT > 0) this.crisisHoldT = Math.max(0, this.crisisHoldT - dt);
+    const eng = this.engine;
+    if (eng && eng.state === 'PLAYING' && eng.scoreManager.lives <= 1) {
+      this.crisisTone -= dt;
+      if (this.crisisTone <= 0) {
+        if (eng.sound && eng.sound.tone) eng.sound.tone(110, 0, 0.5, { type: 'sine', vol: 0.1 }); // 위협음 아님(부드러운 저음)
+        this.crisisTone = 2.0;
+      }
+    } else {
+      this.crisisTone = 0;
+    }
+  }
+
+  // 라이프1에서 정답 순간 테두리를 잠깐 초록으로 밝힌다("버텼다"). engine.answerCorrect가 호출.
+  crisisHold() {
+    this.crisisHoldT = 0.25;
+  }
+
+  // 위기 테두리(재미 표준, 모든 게임 자동): 라이프 2 옅은 경고 / 라이프 1 굵고 느린 맥박(0.8Hz).
+  //   SPEC §2.5 준수 — 어둡게/반전 없음, 깜빡임 0.8Hz(≤3/초). 좌표·두께는 L 헬퍼.
+  drawCrisisBorder(ctx) {
+    const lives = this.engine.scoreManager.lives;
+    const hold = this.crisisHoldT;
+    if (lives >= 3 && hold <= 0) return;
+    let rgb, lw, alpha;
+    if (lives === 2) {
+      rgb = '255,180,80';
+      lw = L.gu(0.25);
+      alpha = 0.35;
+    } else if (lives <= 1) {
+      rgb = '255,90,60';
+      lw = L.gu(0.5);
+      alpha = 0.35 + 0.35 * (0.5 + 0.5 * Math.sin(this.time * Math.PI * 2 * 0.8)); // 0.8Hz 맥박
+    } else {
+      rgb = '120,230,150';
+      lw = L.gu(0.3);
+      alpha = 0;
+    }
+    if (hold > 0) {
+      rgb = '120,230,150';
+      alpha = Math.max(alpha, hold / 0.25);
+      lw = Math.max(lw, L.gu(0.4));
+    }
+    if (alpha <= 0) return;
+    ctx.save();
+    ctx.strokeStyle = `rgba(${rgb},${alpha.toFixed(3)})`;
+    ctx.lineWidth = lw;
+    ctx.strokeRect(lw / 2, lw / 2, L.W - lw, L.H - lw);
+    ctx.restore();
   }
 
   // ── 흔들림 / 플래시 (깜빡임은 초당 3회 이하 — SPEC 2.5) ──
@@ -119,11 +190,12 @@ export class UI {
     ctx.textBaseline = 'middle';
     const cy = SAFE + barH / 2;
 
-    // 점수
+    // 점수 (0.3초 카운트업 — 실제 score는 즉시 반영, 표시값만 드르륵 수렴)
+    this.targetScore = score;
     ctx.textAlign = 'left';
     ctx.font = font(40);
     ctx.fillStyle = THEME.text;
-    ctx.fillText(`${score}점`, SAFE, cy);
+    ctx.fillText(`${Math.round(this.displayScore)}점`, SAFE, cy);
 
     // 콤보 (중앙)
     ctx.textAlign = 'center';

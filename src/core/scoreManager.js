@@ -67,6 +67,14 @@ export class ScoreManager {
     return { combo: this.combo, recovered: this.lastRecovered, milestone };
   }
 
+  // 콤보·판정과 분리된 순수 점수 가산 (SPEC §7).
+  //   정답 '판정'이 아닌 보너스(니어미스, 벌룬 개별 팝 등)에 쓴다.
+  //   → 콤보를 건드리지 않고, 세션 기록도 남기지 않으며, 정답 카운트에도 넣지 않는다.
+  addPoints(points) {
+    this.score += points;
+    return this.score;
+  }
+
   // 오답/시간초과 처리. loseLife=false면 라이프 유지(반사신경 게임 등).
   // 반환: { gameOver }
   registerWrong({ loseLife = true } = {}) {
