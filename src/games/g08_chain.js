@@ -182,22 +182,70 @@ export const g08Chain = {
     this.bubbles.push({ value, isTarget, x, y, vx, vy });
   },
 
-  // 다음 기대값을 항상 화면에 유지(소프트락 방지) + 목표 수만큼 채우기
+  // 화면에 없는 유일한 함정값(비배수) 하나. 없으면 null.
+  _uniqueTrap(existing) {
+    for (let g = 0; g < 40; g++) {
+      const v = this._trapValue();
+      if (!existing.has(v)) return v;
+    }
+    return null;
+  },
+  // 화면에 없는 유일한 배수값 하나. 없으면 null.
+  _uniqueMultiple(existing) {
+    const opts = [];
+    for (let k = 1; k <= WAVE_GOAL; k++) {
+      const v = k * this.D;
+      if (!existing.has(v)) opts.push(v);
+    }
+    return opts.length ? opts[Math.floor(Math.random() * opts.length)] : null;
+  },
+
+  // 다음 기대값을 항상 화면에 유지(소프트락 방지) + 목표 수만큼 채운다.
+  //   ⚠️ 같은 값 중복 금지(#2) + 함정 비율 최소 40% 유지(#3, 순서 맞추기 게임 방지).
   _refill() {
+    const existing = new Set(this.bubbles.map((b) => b.value));
     const nextV = this._nextValue();
-    if (this.nextIdx < WAVE_GOAL && !this.bubbles.some((b) => b.value === nextV)) {
+    if (this.nextIdx < WAVE_GOAL && !existing.has(nextV)) {
       this._spawnBubble(nextV, true);
+      existing.add(nextV);
     }
+    const want = this._bubbleCount();
     let guard = 0;
-    while (this.bubbles.length < this._bubbleCount() && guard < 20) {
+    while (this.bubbles.length < want && guard < 60) {
       guard++;
-      if (Math.random() < 0.5) {
-        const k = 1 + Math.floor(Math.random() * WAVE_GOAL);
-        this._spawnBubble(k * this.D, true);
-      } else {
-        this._spawnBubble(this._trapValue(), false);
+      const traps = this.bubbles.filter((b) => !b.isTarget).length;
+      const wantTrap = traps / Math.max(1, this.bubbles.length) < 0.4; // 함정 40% 목표
+      let value = null;
+      let isTarget = false;
+      if (wantTrap) {
+        value = this._uniqueTrap(existing);
+        isTarget = false;
       }
+      if (value == null) {
+        value = this._uniqueMultiple(existing); // 함정이 부족/불가면 배수로
+        isTarget = true;
+        if (value == null) {
+          value = this._uniqueTrap(existing);
+          isTarget = false;
+        }
+      }
+      if (value == null) break; // 더 뽑을 유일값 없음(버블 수 부족해도 안전)
+      this._spawnBubble(value, isTarget);
+      existing.add(value);
     }
+  },
+
+  // 텍스트를 안전 여백 폭 안에 들어오도록 자동 축소해 그린다(넘치면 폭에 맞춰 줄임, minRatio 하한).
+  _drawFit(ctx, text, cx, y, baseRatio, minRatio, weight) {
+    const maxW = L.W - L.safe * 2;
+    let size = L.font(baseRatio);
+    ctx.font = font(size, weight);
+    const w = ctx.measureText(text).width;
+    if (w > maxW) size = Math.max(L.font(minRatio), (size * maxW) / w);
+    ctx.font = font(size, weight);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, cx, y);
   },
 
   update(dt) {
@@ -335,17 +383,15 @@ export const g08Chain = {
       this.engine.fever.renderGauge(ctx, { x: L.safe, y: L.zone.gauge, w: L.W - L.safe * 2, h: L.gu(0.5) });
     }
 
-    // 지시문(≥80px? 지시문은 문제 텍스트 규정 대상 아님 — 크게)
+    // 지시문 — 안전 여백 안에 반드시 들어오도록 자동 축소(넘치면 폭에 맞춰 줄임)
     ctx.fillStyle = THEME.text;
-    ctx.font = font(L.font(0.055));
-    const title = this.divWave ? `${this.D}로 나누어떨어지는 수를 찾아!` : `${this.D}단의 배수를 순서대로!`;
-    ctx.fillText(title, cx, L.zone.problem);
+    const title = this.divWave ? `${this.D}로 나누어떨어지는 수!` : `${this.D}단 배수를 순서대로!`;
+    this._drawFit(ctx, title, cx, L.zone.problem, 0.052, 0.036, 'bold');
 
-    // 이어온 체인 값 안내(다음 수는 알려주지 않음 — 스스로 계산)
+    // 이어온 체인 값 안내(다음 수는 알려주지 않음 — 스스로 계산). 이것도 폭에 맞춰 축소.
     ctx.fillStyle = THEME.subtext;
-    ctx.font = font(L.font(0.03), 'normal');
     const seq = this.chainValues.length ? this.chainValues.join(' → ') + ' → ?' : '가장 작은 배수부터!';
-    ctx.fillText(seq, cx, L.zone.problem + L.gu(1.7));
+    this._drawFit(ctx, seq, cx, L.zone.problem + L.gu(1.7), 0.03, 0.02, 'normal');
 
     // 체인 연결선(길수록 굵고 빛남)
     if (this.chainPath.length >= 2) {

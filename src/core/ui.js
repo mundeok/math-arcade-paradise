@@ -190,27 +190,55 @@ export class UI {
     ctx.textBaseline = 'middle';
     const cy = SAFE + barH / 2;
 
-    // 점수 (0.3초 카운트업 — 실제 score는 즉시 반영, 표시값만 드르륵 수렴)
+    // 점수 (0.3초 카운트업). 좌측 정렬 + 오른쪽 끝을 재서 콤보 배치 기준으로 쓴다.
     this.targetScore = score;
     ctx.textAlign = 'left';
     ctx.font = font(40);
     ctx.fillStyle = THEME.text;
-    ctx.fillText(`${Math.round(this.displayScore)}점`, SAFE, cy);
+    const scoreText = `${Math.round(this.displayScore)}점`;
+    ctx.fillText(scoreText, SAFE, cy);
+    const scoreRight = SAFE + ctx.measureText(scoreText).width;
 
-    // 콤보 (중앙)
-    ctx.textAlign = 'center';
-    if (combo > 0) {
-      ctx.font = font(44);
-      ctx.fillStyle = THEME.gold;
-      ctx.fillText(`${combo} COMBO`, LOGICAL_W / 2, cy);
+    // 라이프 하트 (⏸ 버튼 왼쪽). 왼쪽 끝을 먼저 계산해 콤보가 들어갈 빈 구간을 잡는다.
+    const heartSize = 46;
+    const heartGap = 10;
+    const n = Math.max(lives, 0);
+    const firstHeartCx = this.pauseRect.x - 20 - heartSize; // 가장 오른쪽 하트 중심
+    const heartsLeft = n > 0 ? firstHeartCx - (n - 1) * (heartSize + heartGap) - heartSize / 2 : this.pauseRect.x - 20;
+    let hx = firstHeartCx;
+    for (let i = 0; i < n; i++) {
+      drawHeart(ctx, hx, cy, heartSize, THEME.life);
+      hx -= heartSize + heartGap;
     }
 
-    // 라이프 하트 (⏸ 버튼 왼쪽)
-    const heartSize = 46;
-    let hx = this.pauseRect.x - 20 - heartSize;
-    for (let i = 0; i < Math.max(lives, 0); i++) {
-      drawHeart(ctx, hx, cy, heartSize, THEME.life);
-      hx -= heartSize + 10;
+    // 콤보: 점수 오른쪽 ~ 하트 왼쪽 '빈 구간' 중앙에 배치(겹침 방지 — 중앙 고정 폐기).
+    //   요소 간 최소 간격은 L.gu로 확보. 구간이 좁으면 폰트 축소, 그래도 좁으면 '×N' 축약, 최후엔 생략.
+    if (combo > 0) {
+      const margin = L.gu(0.5); // 요소 간 최소 간격
+      const gapL = scoreRight + margin;
+      const gapR = heartsLeft - margin;
+      const gapW = gapR - gapL;
+      if (gapW > L.gu(1)) {
+        let label = `${combo} COMBO`;
+        ctx.font = font(44);
+        let w = ctx.measureText(label).width;
+        if (w > gapW) {
+          ctx.font = font(Math.max(30, (44 * gapW) / w)); // 1차: 폰트 축소(하한 30)
+          w = ctx.measureText(label).width;
+        }
+        if (w > gapW) {
+          label = `×${combo}`; // 2차: 축약형
+          ctx.font = font(44);
+          w = ctx.measureText(label).width;
+          if (w > gapW) ctx.font = font(Math.max(22, (44 * gapW) / w));
+          w = ctx.measureText(label).width;
+        }
+        if (w <= gapW) {
+          ctx.textAlign = 'center';
+          ctx.fillStyle = THEME.gold;
+          ctx.fillText(label, (gapL + gapR) / 2, cy);
+        }
+      }
     }
 
     // ⏸ 일시정지 버튼
