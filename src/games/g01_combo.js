@@ -2,31 +2,20 @@
 // 선택형·판단형. 상단 문제 + 하단 2×2 선택지 4개. 제한시간 게이지.
 // 확정 인터페이스(SPEC §7)만 사용한다. core/scenes는 건드리지 않는다.
 //
-// 축 분리(SPEC 2.1) 준수:
-//   - 수학 난이도(level)는 problemGenerator만 관리. 이 파일은 level을 읽지 않는다.
-//   - 게임 난이도(축 B)는 오직 scoreManager.combo로 계산한다:
-//       제한시간 단축 + 오답 근접도(closeness) 상승.
-// 점수·콤보·라이프·복습큐·연출은 engine.answerCorrect / answerWrong 이 전담한다.
+// ⚠️ 재미 표준(§2.6) core 모듈 사용:
+//   - fever:true → engine.fever. 위기 테두리·정답음·점수2배·게이지·카운트업은 core 자동.
+//   - 니어미스 보상: reportNearMiss. 정답 연출은 흐름을 멈추지 않는다(0.15초 이내).
+//   - 고유 재미(순간 판단): 정답 순간 나머지 3개가 뒤로 물러남 + 빠르게 맞힐수록 QUICK 보너스.
+//
+// 좌표·크기·폰트는 전부 core/layout.js 의 L 헬퍼로 계산한다(픽셀 리터럴 금지).
+//
+// 축 분리(SPEC 2.1): level은 problemGenerator만 관리. 게임 난이도(축 B)는 scoreManager.combo로만.
 
-import { LOGICAL_W, LOGICAL_H, SAFE, THEME, font, roundRect, hit } from '../core/ui.js';
+import { L } from '../core/layout.js';
+import { THEME, font, roundRect, hit } from '../core/ui.js';
 
-// ── 레이아웃 상수 (논리 좌표 800×1280) ─────────────────────
-// 버튼 340×160 (SPEC 명시). 2열: 40 + 340 + 40 + 340 + 40 = 800 (좌우 여백 40 ≥ 안전여백 24)
-const BTN_W = 340;
-const BTN_H = 160;
-const COL_X = [40, 420];
-const ROW_GAP = 44;
-const GRID_BOTTOM = LOGICAL_H - SAFE; // 1256
-const ROW_Y = [GRID_BOTTOM - BTN_H * 2 - ROW_GAP, GRID_BOTTOM - BTN_H]; // [892, 1096]
-
-// 제한시간 게이지 (HUD 아래)
-const GAUGE_X = SAFE;
-const GAUGE_Y = 150;
-const GAUGE_W = LOGICAL_W - SAFE * 2;
-const GAUGE_H = 40;
-
-const CORRECT_ANIM = 0.35; // 정답 축하 연출 시간(초)
-const WRONG_ANIM = 0.45; // 오답 버튼 피드백 시간(초) — 이후 core 정답표시 오버레이
+const CORRECT_ANIM = 0.15; // 정답 연출(흐름 멈추지 않음, ≤0.15초)
+const WRONG_ANIM = 0.45; // 오답 버튼 피드백 후 core 정답표시 오버레이
 
 export const g01Combo = {
   id: 'g01_combo',
@@ -35,30 +24,28 @@ export const g01Combo = {
   category: '선택형',
   maxLevel: 4, // 출제 상한 Lv4 (SPEC 2.1 판단형)
   blankRatio: 0.25, // 판단형 빈칸 비율
-  opMode: 'multiply', // 이 게임은 곱셈만 출제 (교사 설정이 특정 연산이면 교사 우선)
+  opMode: 'multiply', // 곱셈만 출제
+  fever: true, // 재미 표준 피버 opt-in → engine.fever (§7.6)
 
   tutorial: {
     text: '문제의 답을 찾아 눌러봐! 빠를수록 점수가 올라가!',
     draw(ctx) {
-      // ctx는 논리 좌표, translate(0,260)된 카드 영역(x 24~776, y 0~440) 안에서 그린다.
-      const cx = LOGICAL_W / 2;
+      const cx = L.W / 2;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
 
-      // 문제 카드
-      roundRect(ctx, cx - 230, 24, 460, 110, 20);
+      roundRect(ctx, cx - L.gu(5.75), L.gu(0.6), L.gu(11.5), L.gu(2.75), L.gu(0.5));
       ctx.fillStyle = THEME.panel;
       ctx.fill();
       ctx.fillStyle = THEME.text;
-      ctx.font = font(64);
-      ctx.fillText('6 × 7 = ?', cx, 80);
+      ctx.font = font(L.font(0.05));
+      ctx.fillText('6 × 7 = ?', cx, L.gu(2));
 
-      // 선택지 2×2 (정답 42는 초록 + ⭕)
-      const bw = 190;
-      const bh = 92;
-      const gap = 26;
+      const bw = L.gu(4.75);
+      const bh = L.gu(2.3);
+      const gap = L.gu(0.65);
       const gx = cx - bw - gap / 2;
-      const gy = 175;
+      const gy = L.gu(4.4);
       const opts = [
         { c: 0, r: 0, label: '42', ok: true },
         { c: 1, r: 0, label: '48', ok: false },
@@ -68,65 +55,76 @@ export const g01Combo = {
       for (const o of opts) {
         const x = gx + o.c * (bw + gap);
         const y = gy + o.r * (bh + gap);
-        roundRect(ctx, x, y, bw, bh, 16);
+        roundRect(ctx, x, y, bw, bh, L.gu(0.4));
         ctx.fillStyle = o.ok ? THEME.correct : THEME.accent;
         ctx.fill();
         ctx.fillStyle = '#fff';
-        ctx.font = font(52);
+        ctx.font = font(L.font(0.041));
         ctx.fillText(o.label, x + bw / 2, y + bh / 2);
         if (o.ok) {
-          ctx.font = font(40);
-          ctx.fillText('⭕', x + bw - 24, y + 22);
+          ctx.font = font(L.font(0.031));
+          ctx.fillText('⭕', x + bw - L.gu(0.6), y + L.gu(0.55));
         }
       }
-
-      // 정답을 누르는 손가락
-      ctx.font = font(76);
-      ctx.fillText('👆', gx + bw / 2 + 40, gy + bh - 6);
+      ctx.font = font(L.font(0.06));
+      ctx.fillText('👆', gx + bw / 2 + L.gu(1), gy + bh - L.gu(0.15));
     },
+  },
+
+  // ── 레이아웃 (L 기반) ──
+  _layout() {
+    const btnW = L.w(0.425); // 340
+    const btnH = L.h(0.125); // 160
+    const colX = [L.w(0.05), L.w(0.525)]; // 40, 420
+    const rowGap = L.gu(1.1); // 44
+    const gridBottom = L.H - L.safe;
+    const rowY = [gridBottom - btnH * 2 - rowGap, gridBottom - btnH];
+    return { btnW, btnH, colX, rowY };
   },
 
   init(engine) {
     this.engine = engine;
     this.problem = null;
-    this.choices = []; // [{x,y,w,h,value}]
-    this.pressedBtn = null; // 손가락으로 누르고 있는 버튼 (scale 0.95 연출)
-    this.hoverPt = null; // 마우스 hover 위치 (PC 전용, 터치는 null)
-    this.mark = null; // {btn, correct} — 정답/오답 순간 연출 대상
-    this.pendingWrong = null; // {problem, value} — 오답 연출 후 answerWrong에 넘길 값
+    this.choices = [];
+    this.pressedBtn = null;
+    this.hoverPt = null;
+    this.mark = null; // {btn, correct}
+    this.pendingWrong = null;
     this.phase = 'play'; // 'play' | 'correctAnim' | 'wrongAnim'
     this.animTimer = 0;
 
     this.timeLimit = 5;
     this.timeLeft = 5;
-    this.ticked = false; // 1초 경고음 1회 재생 플래그
+    this.ticked = false;
+
+    this.wasFever = false;
+    this.feverBanner = null;
 
     this._loadProblem();
   },
 
-  // 현재 콤보 기준 제한시간 계산: 5초 → 콤보 5마다 -0.3초, 최소 2.5초, ×제한시간배율
+  // 제한시간: 5초 → 콤보 5마다 -0.3초, 최소 2.5초, ×교사배율.
   _computeTimeLimit() {
     const combo = this.engine.scoreManager.combo;
     let base = 5 - 0.3 * Math.floor(combo / 5);
-    if (base < 2.5) base = 2.5; // 최소 2.5초 (SPEC)
-    return base * (this.engine.settings.timeScale || 1); // 교사 설정 제한시간 배율 반드시 곱함
+    if (base < 2.5) base = 2.5;
+    return base * (this.engine.settings.timeScale || 1);
   },
 
   _loadProblem() {
     const e = this.engine;
     this.problem = e.problemGenerator.nextProblem({ maxLevel: this.maxLevel, blankRatio: this.blankRatio, opMode: this.opMode });
 
-    // 오답 근접도(축 B): 콤보 0→0.2 / 10→0.5 / 20+→0.8
     const closeness = Math.max(0.2, Math.min(0.8, 0.2 + 0.03 * e.scoreManager.combo));
     const distractors = e.problemGenerator.makeDistractors(this.problem, 3, closeness);
 
-    // 정답 + 오답 3개를 4칸에 무작위 배치
     const values = shuffle([this.problem.answer, ...distractors]).slice(0, 4);
+    const { btnW, btnH, colX, rowY } = this._layout();
     this.choices = [];
     for (let i = 0; i < 4; i++) {
       const col = i % 2;
       const row = Math.floor(i / 2);
-      this.choices.push({ x: COL_X[col], y: ROW_Y[row], w: BTN_W, h: BTN_H, value: values[i] });
+      this.choices.push({ x: colX[col], y: rowY[row], w: btnW, h: btnH, value: values[i] });
     }
 
     this.pressedBtn = null;
@@ -142,19 +140,33 @@ export const g01Combo = {
   update(dt) {
     const e = this.engine;
 
+    // 피버 진입/종료 전이
+    const fev = e.fever;
+    const active = !!(fev && fev.active);
+    if (active && !this.wasFever) {
+      e.ui.flash('rgba(255,210,120,0.5)', 0.09);
+      e.ui.showComboText('🔥 FEVER!', true);
+    } else if (!active && this.wasFever) {
+      this.feverBanner = { points: fev ? fev.pointsEarned : 0, t: 0, dur: 1.4 };
+      e.ui.flash('rgba(120,200,255,0.4)', 0.09);
+    }
+    this.wasFever = active;
+    if (this.feverBanner) {
+      this.feverBanner.t += dt;
+      if (this.feverBanner.t >= this.feverBanner.dur) this.feverBanner = null;
+    }
+
     if (this.phase === 'correctAnim') {
       this.animTimer -= dt;
-      if (this.animTimer <= 0) this._loadProblem();
+      if (this.animTimer <= 0) this._loadProblem(); // 멈춤 없이 즉시 다음 문제
       return;
     }
 
     if (this.phase === 'wrongAnim') {
       this.animTimer -= dt;
       if (this.animTimer <= 0) {
-        // 오답 버튼 연출이 끝나면 core 정답표시 오버레이(1.2초 정지)로 넘긴다.
         const { problem, value } = this.pendingWrong;
         e.answerWrong(problem, value, { loseLife: true, onResume: () => this._loadProblem() });
-        // 이후 freeze 동안 update는 호출되지 않는다. onResume에서 다음 문제 로드.
       }
       return;
     }
@@ -162,55 +174,62 @@ export const g01Combo = {
     // phase === 'play' — 제한시간 카운트다운
     this.timeLeft -= dt;
     if (!this.ticked && this.timeLeft <= 1 && this.timeLeft > 0) {
-      e.sound.play('tick'); // 1초 남았을 때 경고음 1회 (색 변화는 render에서)
+      e.sound.play('tick');
       this.ticked = true;
     }
     if (this.timeLeft <= 0) {
       this.timeLeft = 0;
-      // 시간초과 = 오답 처리 (콤보 리셋 + 라이프 -1 + 정답 1.2초 표시)
       e.timeUp(this.problem, { loseLife: true, onResume: () => this._loadProblem() });
     }
   },
 
   render(ctx) {
-    const cx = LOGICAL_W / 2;
+    const cx = L.W / 2;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
-    // 제한시간 게이지 (1초 이하 남으면 주황으로 색 변화 — 색만 의존하지 않도록 아이콘 병행)
+    this._drawFeverBg(ctx);
+
+    // 제한시간 게이지
+    const gx = L.safe;
+    const gy = L.zone.gauge;
+    const gw = L.W - L.safe * 2;
+    const gh = L.gu(1);
     const ratio = this.timeLimit > 0 ? Math.max(0, this.timeLeft / this.timeLimit) : 0;
     const low = this.timeLeft <= 1;
     ctx.fillStyle = 'rgba(255,255,255,0.15)';
-    roundRect(ctx, GAUGE_X, GAUGE_Y, GAUGE_W, GAUGE_H, GAUGE_H / 2);
+    roundRect(ctx, gx, gy, gw, gh, gh / 2);
     ctx.fill();
     ctx.fillStyle = low ? THEME.wrong : THEME.accent;
-    roundRect(ctx, GAUGE_X, GAUGE_Y, GAUGE_W * ratio, GAUGE_H, GAUGE_H / 2);
+    roundRect(ctx, gx, gy, gw * ratio, gh, gh / 2);
     ctx.fill();
-    // 시간 임박 아이콘 (색약 대응: 색 외 신호)
-    ctx.font = font(30);
+    ctx.font = font(L.font(0.023));
     ctx.fillStyle = THEME.text;
-    ctx.fillText(low ? '⏰ 서둘러!' : '⏱', cx, GAUGE_Y + GAUGE_H / 2);
+    ctx.fillText(low ? '⏰ 서둘러!' : '⏱', cx, gy + gh / 2);
 
-    // 문제 텍스트 (최소 80px 규정 — 크게)
-    ctx.fillStyle = THEME.text;
-    ctx.font = font(120);
-    const qText = this.problem.blank ? this.problem.text : `${this.problem.text} = ?`;
-    ctx.fillText(qText, cx, 430);
-
-    // 복습 문제 표시
-    if (this.problem.fromReview) {
-      ctx.font = font(36);
-      ctx.fillStyle = THEME.gold;
-      ctx.fillText('🔁 다시 도전!', cx, 560);
+    // 피버 게이지(제한시간 게이지 아래)
+    if (this.engine.fever) {
+      this.engine.fever.renderGauge(ctx, { x: gx, y: gy + gh + L.gu(0.3), w: gw, h: L.gu(0.5) });
     }
 
-    // 안내
-    ctx.fillStyle = THEME.subtext;
-    ctx.font = font(30, 'normal');
-    ctx.fillText('정답을 찾아 눌러봐!', cx, ROW_Y[0] - 50);
+    // 문제 텍스트(≥80px)
+    ctx.fillStyle = THEME.text;
+    ctx.font = font(L.font(0.094));
+    const qText = this.problem.blank ? this.problem.text : `${this.problem.text} = ?`;
+    ctx.fillText(qText, cx, L.gu(10.75));
+    if (this.problem.fromReview) {
+      ctx.font = font(L.font(0.028));
+      ctx.fillStyle = THEME.gold;
+      ctx.fillText('🔁 다시 도전!', cx, L.gu(14));
+    }
 
-    // 선택지 버튼
+    ctx.fillStyle = THEME.subtext;
+    ctx.font = font(L.font(0.023), 'normal');
+    ctx.fillText('정답을 찾아 눌러봐!', cx, this.choices[0].y - L.gu(1.25));
+
     for (const c of this.choices) this._drawChoice(ctx, c);
+
+    this._drawFeverBanner(ctx);
   },
 
   _drawChoice(ctx, c) {
@@ -220,64 +239,68 @@ export const g01Combo = {
     const isPressed = this.phase === 'play' && this.pressedBtn === c;
     const isHover = this.phase === 'play' && this.hoverPt && hit(c, this.hoverPt.x, this.hoverPt.y);
 
-    // 색상: 정답 초록 / 오답 주황 / 누름 가장 밝게 / hover 살짝 밝게 / 기본 파랑
     let color = THEME.accent;
     if (isCorrectMark) color = THEME.correct;
     else if (isWrongMark) color = THEME.wrong;
-    else if (isPressed) color = '#6bb3ff'; // 누른 순간 밝은 파랑
-    else if (isHover) color = '#5aa6ff'; // hover 시 살짝 밝게
+    else if (isPressed) color = '#6bb3ff';
+    else if (isHover) color = '#5aa6ff';
 
-    // 스케일: 누름 0.95 / 정답 살짝 튀어오름(1+0.14) / 오답은 그대로(흔들림은 core 화면 흔들림)
+    // 스케일/투명도
     let scale = 1;
+    let alpha = 1;
     if (isPressed) scale = 0.95;
     else if (isCorrectMark) {
       const p = 1 - Math.max(0, this.animTimer) / CORRECT_ANIM; // 0→1
       scale = 1 + 0.14 * Math.sin(p * Math.PI); // 튀어올랐다 돌아옴
+    } else if (this.phase === 'correctAnim' && !isMark) {
+      // 고유 재미: 정답 순간 나머지 3개가 뒤로 물러남(축소+페이드)
+      const p = 1 - Math.max(0, this.animTimer) / CORRECT_ANIM;
+      scale = 1 - 0.3 * p;
+      alpha = 1 - 0.65 * p;
     }
 
     const cx = c.x + c.w / 2;
     const cy = c.y + c.h / 2;
     ctx.save();
+    ctx.globalAlpha = alpha;
     ctx.translate(cx, cy);
     ctx.scale(scale, scale);
     ctx.translate(-cx, -cy);
 
-    roundRect(ctx, c.x, c.y, c.w, c.h, 26);
+    roundRect(ctx, c.x, c.y, c.w, c.h, L.gu(0.65));
     ctx.fillStyle = color;
     ctx.fill();
     ctx.strokeStyle = 'rgba(255,255,255,0.3)';
-    ctx.lineWidth = 4;
+    ctx.lineWidth = L.gu(0.1);
     ctx.stroke();
 
     ctx.fillStyle = '#fff';
-    ctx.font = font(96);
+    ctx.font = font(L.font(0.075));
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(String(c.value), cx, cy);
 
-    // 정오답 아이콘 (색 + 아이콘 + 모양 3중 — SPEC 2.5 색약 대응)
     if (isCorrectMark) {
-      ctx.font = font(64);
-      ctx.fillText('⭕', c.x + c.w - 44, c.y + 44);
+      ctx.font = font(L.font(0.05));
+      ctx.fillText('⭕', c.x + c.w - L.gu(1.1), c.y + L.gu(1.1));
     } else if (isWrongMark) {
-      ctx.font = font(64);
-      ctx.fillText('❌', c.x + c.w - 44, c.y + 44);
+      ctx.font = font(L.font(0.05));
+      ctx.fillText('❌', c.x + c.w - L.gu(1.1), c.y + L.gu(1.1));
     }
     ctx.restore();
   },
 
   onTouch(x, y, phase) {
-    if (this.phase !== 'play') return; // 연출 중 입력 차단
+    if (this.phase !== 'play') return;
 
     if (phase === 'start') {
       for (const c of this.choices) {
         if (hit(c, x, y)) {
-          this.pressedBtn = c; // 누른 느낌 표시
+          this.pressedBtn = c;
           return;
         }
       }
     } else if (phase === 'move') {
-      // 손가락이 누른 버튼 밖으로 나가면 누름 취소
       if (this.pressedBtn && !hit(this.pressedBtn, x, y)) this.pressedBtn = null;
     } else if (phase === 'end') {
       const btn = this.pressedBtn;
@@ -289,26 +312,42 @@ export const g01Combo = {
   _commit(btn) {
     const e = this.engine;
     if (btn.value === this.problem.answer) {
-      // 정답: 100점 + (현재콤보 × 10) (SPEC 3.4 / §4 1️⃣)
+      const remainRatio = this.timeLimit > 0 ? Math.max(0, this.timeLeft / this.timeLimit) : 0;
+
+      // 정답: 100점 + 콤보×10 (피버 2배는 answerCorrect 자동)
       const pts = 100 + e.scoreManager.combo * 10;
       e.answerCorrect(this.problem, btn.value, pts);
+
       const bx = btn.x + btn.w / 2;
       const by = btn.y + btn.h / 2;
+
+      // 니어미스: 제한시간 0.3초 남기고 정답
+      if (this.timeLeft <= 0.3) {
+        e.reportNearMiss(bx, by);
+      } else if (remainRatio >= 0.5) {
+        // 고유 재미: 빠르게 맞힐수록 QUICK 보너스 (첫 절반 안에 정답)
+        const fmult = e.fever && e.fever.active ? e.fever.scoreMultiplier : 1;
+        const bonus = Math.round(remainRatio * 60 * fmult);
+        if (bonus > 0) {
+          e.scoreManager.addPoints(bonus);
+          if (e.fever) e.fever.addPoints(bonus);
+          e.ui.showComboText(`QUICK +${bonus}`, false);
+        }
+      }
+
       e.particles.emit(bx, by, 'sparkle', THEME.correct, 16);
       this.mark = { btn, correct: true };
       this.phase = 'correctAnim';
       this.animTimer = CORRECT_ANIM;
     } else {
-      // 오답: 버튼 주황+❌ 연출(흔들림) 후 core 정답표시 오버레이로 넘김
       this.mark = { btn, correct: false };
       this.pendingWrong = { problem: this.problem, value: btn.value };
       this.phase = 'wrongAnim';
       this.animTimer = WRONG_ANIM;
-      e.ui.shake(16, 0.4); // 흔들림 (즉각 피드백)
+      e.ui.shake(16, 0.4);
     }
   },
 
-  // 마우스 hover: 선택지 위인지 반환(커서 pointer). 연출 중엔 hover 없음.
   onHover(x, y) {
     if (this.phase !== 'play') {
       this.hoverPt = null;
@@ -323,10 +362,46 @@ export const g01Combo = {
   },
 
   onKey(e) {
-    // 데스크톱 확인용: 1~4 키로 선택지 선택
     if (this.phase !== 'play') return;
     const idx = { 1: 0, 2: 1, 3: 2, 4: 3 }[e.key];
     if (idx != null && this.choices[idx]) this._commit(this.choices[idx]);
+  },
+
+  _feverIntensity() {
+    const f = this.engine.fever;
+    if (!f) return 0;
+    if (f.active) return 1;
+    const peak = (f.cfg && f.cfg.speedMult ? f.cfg.speedMult : 1.35) - 1;
+    return peak > 0 ? Math.max(0, (f.speedMultiplier - 1) / peak) : 0;
+  },
+  _drawFeverBg(ctx) {
+    const mult = this._feverIntensity();
+    if (mult <= 0) return;
+    const a = 0.14 * mult;
+    const g = ctx.createLinearGradient(0, 0, 0, L.H);
+    g.addColorStop(0, `rgba(255,180,90,${a})`);
+    g.addColorStop(0.5, `rgba(255,120,170,${a * 0.85})`);
+    g.addColorStop(1, `rgba(120,180,255,${a})`);
+    ctx.save();
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, L.W, L.H);
+    ctx.restore();
+  },
+  _drawFeverBanner(ctx) {
+    if (!this.feverBanner) return;
+    const b = this.feverBanner;
+    const prog = b.t / b.dur;
+    ctx.save();
+    ctx.globalAlpha = prog < 0.7 ? 1 : Math.max(0, 1 - (prog - 0.7) / 0.3);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = font(L.font(0.07));
+    ctx.lineWidth = L.gu(0.25);
+    ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+    ctx.strokeText(`FEVER +${b.points}`, L.W / 2, L.gu(9));
+    ctx.fillStyle = THEME.gold;
+    ctx.fillText(`FEVER +${b.points}`, L.W / 2, L.gu(9));
+    ctx.restore();
   },
 
   destroy() {
@@ -337,10 +412,10 @@ export const g01Combo = {
     this.hoverPt = null;
     this.mark = null;
     this.pendingWrong = null;
+    this.feverBanner = null;
   },
 };
 
-// 배열 셔플 (게임 내부 배치용 — 문제/오답 생성은 core가 담당)
 function shuffle(arr) {
   const a = arr.slice();
   for (let i = a.length - 1; i > 0; i--) {
