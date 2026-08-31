@@ -9,8 +9,10 @@ import { g09Balloon } from './g09_balloon.js';
 import { g06Stack } from './g06_stack.js';
 import { g04Timing } from './g04_timing.js';
 import { g08Chain } from './g08_chain.js';
+import { g05Match } from './g05_match.js';
+import { g07Shoot } from './g07_shoot.js';
 
-// 실제로 구현되어 플레이 가능한 게임들 (Phase 0: 더미 1개 / Phase 1: +2종 / Phase 2: +2종 / Phase 3: +2종)
+// 실제로 구현되어 플레이 가능한 게임들 (Phase 0: 더미 1개 / Phase 1: +2종 / Phase 2: +2종 / Phase 3: +2종 / Phase 4: +2종)
 export const IMPLEMENTED = [
   dummyGame,
   g01Combo, // Phase 1
@@ -19,6 +21,8 @@ export const IMPLEMENTED = [
   g06Stack, // Phase 2
   g04Timing, // Phase 3
   g08Chain, // Phase 3
+  g05Match, // Phase 4
+  g07Shoot, // Phase 4
 ];
 
 // 메뉴 표시용 10종 카탈로그 (SPEC §4). 구현 전 게임은 "준비 중"으로 뜬다.
