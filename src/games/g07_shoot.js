@@ -2,12 +2,14 @@
 // 반사신경형(액션). 상단 문제 고정. 위에서 '숫자 로봇'이 내려오고, 정답 로봇만 멈춘다.
 // 확정 인터페이스(SPEC §7)만 사용한다. core/scenes는 절대 건드리지 않는다.
 //
-// ⚠️ 조작(초등생 배려, SPEC §4 7️⃣): 자동 발사 + 좌우 이동만.
-//   - 발사기는 0.4초마다 자동으로 위로 쏜다. 학생은 좌우 이동만 신경쓴다.
-//   - 조작: 화면을 좌우로 터치/드래그(발사기가 손가락 x로 따라온다) 또는 키보드 ← →.
-//   - 수동 발사는 오폭이 잦아 채택하지 않는다.
-//   - 로봇은 각자 '레인'(고정 x)에서 수직으로만 내려온다 → 정답 레인 아래에 서면
-//     그 로봇만 맞고 오폭이 구조적으로 없다(공정한 조준 게임). 정답을 찾아 정렬하는 것이 핵심.
+// ⚠️ 조작(사용자 지시로 SPEC §4 7️⃣에서 변경 — SPEC.md는 아직 자동 발사로 되어 있어 갱신 필요):
+//   자동 발사를 없애고 플레이어가 발사 시점을 정한다. 자동 발사는 정답 레인 도착 전에 총알이 나가
+//   이동 중 오답 로봇을 맞혀 의도치 않게 실패하는 문제가 있었다. 그래서 '수동 발사'로 바꾼다.
+//   - 이동: 손가락 x를 따라 발사기가 이동(터치 start·move). ⚠️ 이동만으로는 절대 발사하지 않는다.
+//   - 발사: 손가락을 뗄 때(탭/드래그 후 릴리즈, 그 자리에서 발사) 또는 스페이스바. 키보드 이동은 ← →.
+//   - 연사 방지: 발사 후 0.3초 쿨다운.
+//   - 로봇은 각자 '레인'(고정 x)에서 수직으로만 내려오고, 탄환은 발사 순간 발사기 레인으로만 직진한다
+//     → 탭한 레인의 로봇만 맞는다(다른 레인엔 안 맞음). "정답 레인에 가서 쏜다"가 명확한 의도가 된다.
 //
 // 라이프(SPEC §4 7️⃣):
 //   - 오답 로봇을 멈춤        → answerWrong(loseLife:true) : 라이프 -1 + 정답표시 1.2초
@@ -32,7 +34,7 @@ const ZOOM_MAX = 0.01; // 1.01배
 const FLOAT_DUR = 0.6; // 획득 점수 부양(≤0.70)
 const PUFF_DUR = 0.4; // 연기 구름(파티클 상한 내)
 
-const FIRE_INTERVAL = 0.4; // 자동 발사 간격(SPEC 명시)
+const FIRE_COOLDOWN = 0.3; // 수동 발사 후 연사 방지 쿨다운
 const BASE_SEC = 3.4; // 콤보0에서 로봇이 화면을 내려오는 시간(느긋 — 조준 여유)
 const MIN_SEC = 1.7; // 하강 최소 시간(하드 클램프)
 
@@ -71,7 +73,7 @@ export const g07Shoot = {
   },
 
   tutorial: {
-    text: '좌우로 움직여 정답 숫자 로봇을 맞혀! 발사는 자동이야!',
+    text: '좌우로 움직여서 정답 로봇 아래에 서고, 화면을 눌러 발사!',
     draw(ctx) {
       const cx = L.W / 2;
       ctx.textAlign = 'center';
@@ -101,7 +103,7 @@ export const g07Shoot = {
 
       ctx.fillStyle = THEME.subtext;
       ctx.font = font(L.font(0.03));
-      ctx.fillText('◀ 좌우로 움직이기 ▶', cx, L.gu(9));
+      ctx.fillText('◀ 이동 ▶   ·   화면 탭 = 발사', cx, L.gu(9));
     },
   },
 
@@ -116,7 +118,7 @@ export const g07Shoot = {
 
     this.charX = L.W / 2;
     this.targetX = L.W / 2;
-    this.fireAcc = 0;
+    this.fireCooldown = 0; // 발사 쿨다운 남은 시간(0이면 발사 가능)
     this.hitStreak = 0; // 연속 정답 격추(탄환 크기)
 
     this.time = 0;
@@ -191,7 +193,7 @@ export const g07Shoot = {
     });
 
     this.nearMissUsed = false;
-    this.fireAcc = 0; // 라운드 시작 직후 바로 쏘지 않게(정렬 여유)
+    this.fireCooldown = 0; // 새 라운드에서는 즉시 발사 가능
   },
 
   update(dt) {
@@ -213,17 +215,11 @@ export const g07Shoot = {
     if (this.zoomT > 0) this.zoomT = Math.max(0, this.zoomT - dt);
 
     // 발사기 이동(손가락/키 목표로 부드럽게 수렴)
-    const k = Math.min(1, dt * 12);
+    const k = Math.min(1, dt * 14);
     this.charX += (this.targetX - this.charX) * k;
 
-    // 자동 발사(hitStop 중엔 멈춤)
-    if (this.hitStop <= 0) {
-      this.fireAcc += dt;
-      if (this.fireAcc >= FIRE_INTERVAL) {
-        this.fireAcc -= FIRE_INTERVAL;
-        this._fire();
-      }
-    }
+    // 발사 쿨다운만 진행. 발사는 플레이어가 탭(뗄 때)/스페이스로 직접 한다 — 자동 발사 없음.
+    if (this.fireCooldown > 0) this.fireCooldown = Math.max(0, this.fireCooldown - dt);
 
     // 하강(hitStop 동안 정지). 속도는 매 프레임 재계산(피버/램프 즉시 반영).
     this.curSpeed = this._currentSpeed();
@@ -263,6 +259,9 @@ export const g07Shoot = {
   },
 
   _fire() {
+    if (this.fireCooldown > 0) return; // 연사 방지(0.3초)
+    this.fireCooldown = FIRE_COOLDOWN;
+    // 탄환은 발사 순간 발사기 레인(x 고정)으로만 직진 → 다른 레인 로봇엔 맞지 않는다.
     // 연속 격추 시 탄환이 커진다(고유 재미). 상한 둠.
     const grow = 1 + Math.min(1.2, this.hitStreak * 0.12);
     this.bullets.push({ x: this.charX, y: this.charY - this.charH / 2, r: L.w(0.016) * grow });
@@ -276,8 +275,10 @@ export const g07Shoot = {
       let bestY = -Infinity; // 가장 아래(먼저 만나는) 로봇
       for (const en of this.enemies) {
         if (en.judged) continue;
-        const rr = this._visR(en) + b.r;
-        if (Math.abs(en.x - b.x) <= rr && Math.abs(en.y - b.y) <= rr) {
+        // x는 로봇 몸통 안(레인 일치)일 때만 맞는다 → 다른 레인 로봇엔 안 맞음.
+        // y는 탄환이 로봇 높이에 닿았는지.
+        const er = this._visR(en);
+        if (Math.abs(en.x - b.x) <= er && Math.abs(en.y - b.y) <= er + b.r) {
           if (en.y > bestY) {
             bestY = en.y;
             hit = en;
@@ -490,18 +491,25 @@ export const g07Shoot = {
     ctx.restore();
   },
 
-  // ── 입력: 좌우 이동만 ──
+  // ── 입력: 좌우 이동 + 직접 발사 ──
+  //   이동: 손가락 x를 따라(터치 start·move). 발사: 손가락을 뗄 때(탭/드래그 릴리즈) 또는 스페이스바.
+  //   ⚠️ 이동 중(start·move)에는 절대 발사하지 않는다 → 의도치 않은 오폭 방지.
   onTouch(x, y, phase) {
     if (phase === 'start' || phase === 'move') {
       this.targetX = clamp(x, this._minX(), this._maxX());
+    } else if (phase === 'end') {
+      // 뗀 자리로 발사기를 확정하고 그 레인으로 발사(드래그로 이동 후 떼면 그 자리에서 발사).
+      this.charX = this.targetX = clamp(x, this._minX(), this._maxX());
+      this._fire();
     }
   },
   onKey(e) {
     const step = L.w(0.14);
     if (e.key === 'ArrowLeft') this.targetX = clamp(this.targetX - step, this._minX(), this._maxX());
     else if (e.key === 'ArrowRight') this.targetX = clamp(this.targetX + step, this._minX(), this._maxX());
+    else if (e.code === 'Space' || e.key === ' ' || e.key === 'Spacebar') this._fire();
   },
-  // 이 게임은 이동만 하므로 hover 클릭요소 없음(커서 기본).
+  // 이 게임은 이동/발사만 하므로 hover 클릭요소 없음(커서 기본).
   onHover() {
     return false;
   },
