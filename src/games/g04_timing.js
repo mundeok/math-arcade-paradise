@@ -28,7 +28,7 @@ export const g04Timing = {
   maxLevel: 4,
   blankRatio: 0.25,
   opMode: 'multiply',
-  fever: true,
+  fever: { type: 'easy' }, // easy=피버 중 쉬운 문제형 (§2.6/§7.6)
   // 게임 고유 콤보 문구(정밀함 테마). PERFECT/GOOD/OK는 '판정' 문구라 따로 그린다.
   comboMilestones: { 5: 'TICK!', 15: 'PRECISE!', 25: 'CLOCKWORK!' },
 

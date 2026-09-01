@@ -32,7 +32,7 @@ export const g06Stack = {
   blankRatio: 0.25,
   opMode: 'divide',
   comboMilestones: { 10: 'STEADY!' },
-  fever: true, // 재미 표준 피버 opt-in → engine.fever (§7.6)
+  fever: { type: 'easy' }, // 재미 표준 피버 opt-in → engine.fever (§7.6). easy=피버 중 쉬운 문제형
 
   get blockW() {
     return L.w(0.2);

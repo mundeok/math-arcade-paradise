@@ -27,7 +27,7 @@ export const g08Chain = {
   maxLevel: 4,
   blankRatio: 0,
   opMode: 'mixed', // 곱셈·나눗셈 웨이브 교대(게임이 프레임 관리 — nextProblem은 쓰지 않음)
-  fever: true,
+  fever: { type: 'easy' }, // easy=피버 중 쉬운 문제형 (§2.6/§7.6)
   // 체인 길이(=콤보) 문구. core 기본(5/10/20/30)을 이 콤보에서 덮어쓴다.
   comboMilestones: { 3: 'CHAIN!', 5: 'CHAIN×5!', 10: 'ULTIMATE CHAIN!' },
 
@@ -115,11 +115,23 @@ export const g08Chain = {
     return Math.min(8, 5 + Math.floor(this.engine.scoreManager.combo / 8));
   },
 
+  // 피버 easy 유형이 지금 발동 중인가(core는 자체 생성 게임엔 문제 하향을 못 주므로 게임이 직접 읽는다).
+  _feverEasyActive() {
+    const f = this.engine.fever;
+    return !!(f && f.active && f.type === 'easy');
+  },
+
   _activeDans() {
     const s = this.engine.settings;
     let dans = s.dans && s.dans.length ? s.dans.slice() : [2, 3, 4, 5, 6, 7, 8, 9];
-    dans = dans.filter((d) => d >= 3 && d <= 9); // 함정이 의미 있으려면 3단 이상
-    if (!dans.length) dans = [3, 4, 6, 7, 8];
+    if (this._feverEasyActive()) {
+      // 피버 easy: 2~5단으로 제한(쉬운 단). 함정(2단=홀수 등)도 여전히 의미 있다.
+      dans = dans.filter((d) => d >= 2 && d <= 5);
+      if (!dans.length) dans = [2, 3, 4, 5];
+    } else {
+      dans = dans.filter((d) => d >= 3 && d <= 9); // 함정이 의미 있으려면 3단 이상
+      if (!dans.length) dans = [3, 4, 6, 7, 8];
+    }
     return dans;
   },
 
@@ -210,11 +222,12 @@ export const g08Chain = {
       existing.add(nextV);
     }
     const want = this._bubbleCount();
+    const trapTarget = this._feverEasyActive() ? 0.25 : 0.4; // 피버 easy: 함정 비율 40%→25%로 낮춤
     let guard = 0;
     while (this.bubbles.length < want && guard < 60) {
       guard++;
       const traps = this.bubbles.filter((b) => !b.isTarget).length;
-      const wantTrap = traps / Math.max(1, this.bubbles.length) < 0.4; // 함정 40% 목표
+      const wantTrap = traps / Math.max(1, this.bubbles.length) < trapTarget;
       let value = null;
       let isTarget = false;
       if (wantTrap) {

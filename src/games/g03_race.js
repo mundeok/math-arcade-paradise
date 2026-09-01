@@ -67,7 +67,7 @@ export const g03Race = {
   maxLevel: 4, // 출제 상한 Lv4 (SPEC 2.1 사고형이지만 운전 반응이 섞여 Lv4로 제한)
   blankRatio: 0.25, // 판단형 비율
   opMode: 'mixed',
-  fever: true,
+  fever: { type: 'easy' }, // easy=피버 중 쉬운 문제형 (§2.6/§7.6)
   comboMilestones: { 5: 'FAST!', 10: 'TURBO!', 20: 'NITRO!', 30: 'CHAMPION!' },
 
   tutorial: {

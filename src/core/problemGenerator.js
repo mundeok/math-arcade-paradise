@@ -31,6 +31,12 @@ export class ProblemGenerator {
     this.recentKeys = []; // 최근 5문제 중복 방지
     this.reviewQueue = []; // 복습 큐 [{problem, dueAt}]
     this.served = 0; // 출제한 문제 수 (복습 due 계산 기준)
+
+    // 피버 'easy' 유형 오버라이드(재설계 2단계). engine이 피버 상태에 맞춰 매 프레임 동기화한다.
+    //   true면 nextProblem이 레벨을 Lv1~2로 낮추고 빈칸형을 빼며(쉬운 문제), makeDistractors가
+    //   오답지를 정답과 멀게(closeness 낮춤) 만든다. 복습 due 문제도 피버 중엔 미루고 쉬운 문제만 낸다.
+    //   ⚠️ currentLevel(축 A) 자체는 바꾸지 않는다 — 임시 캡일 뿐이라 피버가 끝나면 원래 레벨로 복귀한다.
+    this.feverEasy = false;
   }
 
   // 교사 설정이 바뀌면 갱신 (레벨 고정 반영)
@@ -47,6 +53,7 @@ export class ProblemGenerator {
     this.recentKeys = [];
     this.reviewQueue = [];
     this.served = 0;
+    this.feverEasy = false;
     if (this.settings.fixedLevel) {
       this.currentLevel = clamp(this.settings.fixedLevelValue || 1, 1, 5);
     } else {
@@ -107,19 +114,29 @@ export class ProblemGenerator {
   nextProblem({ maxLevel = 5, blankRatio = 0.25, opMode = 'mixed' } = {}) {
     this.served += 1;
 
-    // 1) 복습 큐에서 due가 된 문제가 있으면 우선 출제 (중복 방지 예외)
-    const due = this.reviewQueue.find((q) => q.dueAt <= this.served);
-    if (due) {
-      const p = cloneProblem(due.problem);
-      p.fromReview = true;
-      return p;
+    // 피버 'easy' 오버라이드: 레벨을 Lv1~2로 캡, 빈칸형 제외. 복습 due도 미루고 쉬운 문제만 낸다
+    //   (피버 중엔 쉬운 문제만 나와야 하므로 — 복습은 피버가 끝난 뒤 due가 유지되어 출제된다).
+    const easy = this.feverEasy;
+
+    // 1) 복습 큐에서 due가 된 문제가 있으면 우선 출제 (중복 방지 예외). 단 피버 easy 중엔 건너뛴다.
+    if (!easy) {
+      const due = this.reviewQueue.find((q) => q.dueAt <= this.served);
+      if (due) {
+        const p = cloneProblem(due.problem);
+        p.fromReview = true;
+        return p;
+      }
     }
 
     // 2) 새 문제 생성 (최근 5문제와 중복되지 않을 때까지 재시도)
-    const effLevel = clamp(this.currentLevel, 1, Math.max(1, maxLevel));
+    const cap = easy ? Math.min(maxLevel, 2) : maxLevel; // 피버 easy: Lv1~2 상한
+    const effBlank = easy ? 0 : blankRatio; // 피버 easy: 빈칸형 미출제(고민 없이 바로 고르게)
+    let effLevel = clamp(this.currentLevel, 1, Math.max(1, cap));
+    // 피버 easy: Lv1~2를 섞어 더 쉽게(곱셈구구 2~5단=Lv1 도 등장). 현재 레벨 이하로만 낮춘다(높이지 않음).
+    if (easy && effLevel >= 2 && Math.random() < 0.5) effLevel = 1;
     let problem = null;
     for (let attempt = 0; attempt < 30; attempt++) {
-      const cand = this.generateForLevel(effLevel, blankRatio, opMode);
+      const cand = this.generateForLevel(effLevel, effBlank, opMode);
       if (!cand) continue;
       const key = problemKey(cand);
       if (!this.recentKeys.includes(key)) {
@@ -128,7 +145,7 @@ export class ProblemGenerator {
       }
     }
     // 30번 시도해도 다 겹치면(문제 공간이 좁은 경우) 그냥 마지막 후보 사용
-    if (!problem) problem = this.generateForLevel(effLevel, blankRatio, opMode);
+    if (!problem) problem = this.generateForLevel(effLevel, effBlank, opMode);
 
     // 최근 목록 갱신 (최대 5개)
     this.recentKeys.push(problemKey(problem));
@@ -301,6 +318,8 @@ export class ProblemGenerator {
   //   2) 오답은 정답과 '같은 자릿수'다. 답 한 자리 → 오답 한 자리(1~9), 두 자리 → 두 자리(10~99),
   //      세 자리 → 세 자리… 계산 없이 자릿수만으로 정답을 골라내는 것을 막는다.
   makeDistractors(problem, count, closeness = 0.5) {
+    // 피버 easy: 오답을 정답과 멀게 만들어 고민 없이 바로 고르게 한다(closeness 강제 하향).
+    if (this.feverEasy) closeness = 0.1;
     const answer = problem.answer;
     const a = problem.a;
     const b = problem.b;

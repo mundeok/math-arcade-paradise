@@ -67,6 +67,9 @@ export class Engine {
     // 정답 표시 오버레이(1.2초 완전 정지) 상태
     this.freeze = { active: false, timer: 0, dur: 1.2, problem: null, onResume: null, gameOver: false };
 
+    // 피버 무적 오답의 지연 재개 콜백(다음 프레임 시작에 실행 — 정지 없이 흐름 유지)
+    this._pendingResume = null;
+
     // 문제 응답시간 측정 시작점
     this.questionStartMs = 0;
 
@@ -198,6 +201,7 @@ export class Engine {
     this.ui.reset();
     this.particles.clear();
     this.freeze.active = false;
+    this._pendingResume = null;
 
     // 피버 opt-in: 게임의 정적 fever 필드를 init 전에 읽어 생성(게임 인스턴스 상태 오염 방지).
     this.fever = this._makeFever(game.fever);
@@ -241,26 +245,38 @@ export class Engine {
   // 정답: 점수·콤보·라이프회복·연출·복습큐·레벨상향까지 일괄 처리
   answerCorrect(problem, userAnswer, points) {
     const rMs = this.responseMs;
-    // 피버 opt-in 시 점수 배수 자동 적용(피버 없으면 그대로 — 하위 호환)
-    const pts = this.fever && this.fever.active ? Math.round(points * this.fever.scoreMultiplier) : points;
+    // 피버 opt-in 시 점수 배수 자동 적용(피버 없으면 그대로 — 하위 호환).
+    // 재설계: 배수는 기본 3배 + 연타 보너스(4~5배). registerScoreStreak 가 이번 정답의 배수를 확정하고,
+    //   같은 값이 scoreMultiplier getter 로 노출되므로 게임의 '+점수' 표시와 실제 가산이 일치한다.
+    const feverActive = !!(this.fever && this.fever.active);
+    const mult = feverActive ? this.fever.registerScoreStreak() : 1;
+    const pts = feverActive ? Math.round(points * mult) : points;
     const res = this.scoreManager.registerCorrect(pts);
     this.session.record({ gameId: this.game.id, question: problem, userAnswer, correct: true, responseMs: rMs });
     this.problemGenerator.reportResult(problem, true);
-    // 레벨 상향: 콤보가 8의 배수 도달 시 (SPEC 2.1)
-    if (res.combo > 0 && res.combo % 8 === 0) this.problemGenerator.raiseLevel();
+    // 레벨 상향: 콤보가 8의 배수 도달 시 (SPEC 2.1).
+    //   ⚠️ 재설계 2단계: 피버 중 정답은 수학 레벨(축 A) 상승에 반영하지 않는다. 피버는 무적이라 콤보가
+    //   보호되므로, 피버 중 쌓인 콤보로 레벨을 올리면 피버 종료 후 난이도가 부당하게 치솟는다.
+    if (!feverActive && res.combo > 0 && res.combo % 8 === 0) this.problemGenerator.raiseLevel();
 
     // 피버 게이지 +정답 / 종료 배너용 점수 누적 (opt-in 게임만)
     if (this.fever) {
       this.fever.gainCorrect();
       this.fever.addPoints(pts);
     }
+    // 피버 'easy' 오버라이드 동기화: 이 정답으로 피버가 막 발동했을 수 있고, 게임이 곧바로
+    //   다음 문제를 로드하므로 여기서 즉시 갱신해 첫 피버 문제부터 쉬운 레벨이 나오게 한다.
+    this._syncFeverEasy();
 
-    // 정답음: 콤보에 따라 반음 상승(재미 표준). 모든 게임 자동 적용.
-    this.sound.playCorrect(res.combo, { boost: !!(this.fever && this.fever.active) });
+    // 정답음: 콤보에 따라 반음 상승(재미 표준). 피버 중엔 한 옥타브↑ + 상승 폭 2배(재설계).
+    this.sound.playCorrect(res.combo, { boost: feverActive, wide: feverActive });
     this._playComboMilestone(res.combo, res.milestone);
     if (res.recovered) this.ui.showComboText('LIFE +1', false);
     // 위기 회복 피드백: 라이프1에서 정답 → 테두리 잠깐 밝힘("버텼다")
     if (this.scoreManager.lives <= 1) this.ui.crisisHold();
+
+    // 피버 연출 강화(재설계): 점수 숫자 2~3개 부양 + 파티클 밀도 2배(게임 자체 연출 위에 겹침).
+    if (feverActive) this._feverBurst(pts);
 
     this.markQuestionStart();
     return res;
@@ -278,6 +294,31 @@ export class Engine {
   answerWrong(problem, userAnswer, opts = {}) {
     const { loseLife = true, onResume = null, freeze = true, affectLevel = true, missed = false } = opts;
     const rMs = this.responseMs;
+
+    // ── 피버 무적(재설계 §2.6) ────────────────────────────────
+    // 피버 중 오답은 라이프·콤보·레벨을 건드리지 않고, 1.2초 정답표시(정지)도 띄우지 않는다.
+    //   흐름을 멈추지 않는 것이 이 구간의 전부다: 짧은 시각 신호(0.3초)만 주고 즉시 다음 문제.
+    //   단 오답은 세션 기록에는 남긴다(결과 화면 '틀린 문제'). 게이지는 이미 발동 중이라 불변.
+    //   정답률(scoreManager) 집계에도 넣지 않는다 — '틀려도 안 무섭다'는 해방감을 위해 완전 면책한다.
+    //   ⚠️ 단 복습 큐에는 넣는다(재설계 2단계): 피버 중엔 쉬운 문제가 나오므로 그걸 틀렸다면 확실히
+    //      모르는 것 → 재출제 대상이다. 레벨 하향만 계속 건너뛴다. ('놓침' affectLevel:false는 반응속도
+    //      문제라 복습 대상 아님 — 기존 정책 유지.)
+    if (this.fever && this.fever.active) {
+      this.session.record({ gameId: this.game.id, question: problem, userAnswer, correct: false, responseMs: rMs, missed });
+      if (affectLevel) this.problemGenerator.addToReview(problem); // 복습만(레벨 하향 없음)
+      // freeze 경로(일반 오답 '터치')만 짧은 시각 신호를 준다. 어둡게 금지 → 밝은 플래시(SPEC §2.5).
+      //   freeze:false(반사신경 '놓침')는 게임이 자체 연출을 하므로 core는 겹치지 않는다.
+      if (freeze) {
+        this.ui.flash('rgba(255,220,140,0.35)', 0.3);
+        this.ui.shake(8, 0.12);
+        // 정지가 없으므로 게임의 onResume(다음 문제 로드)을 이어서 실행한다. 단 동기 호출은
+        //   호출부(onTouch/update)가 아직 this.problem 을 쓰는 중일 수 있어 위험하므로, 기존 1.2초
+        //   freeze 경로처럼 '나중에'(다음 프레임 시작) 실행한다 — 게임의 기존 가정과 일치한다.
+        this._pendingResume = typeof onResume === 'function' ? onResume : null;
+      }
+      return { gameOver: false };
+    }
+
     const res = this.scoreManager.registerWrong({ loseLife });
     this.session.record({ gameId: this.game.id, question: problem, userAnswer, correct: false, responseMs: rMs, missed });
     // 레벨 하향·복습큐 등록 (반사신경 '놓침'은 affectLevel:false로 제외)
@@ -336,6 +377,60 @@ export class Engine {
       this.particles.emit(x, y, 'sparkle', THEME.gold, 12);
     }
     return pts;
+  }
+
+  // 피버 'easy' 유형 활성 여부를 problemGenerator에 반영한다(재설계 2단계).
+  //   'easy'로 발동 중일 때만 문제 하향(레벨 Lv1~2·오답 멀게)이 적용된다. 'multi'/비피버면 false.
+  _syncFeverEasy() {
+    this.problemGenerator.feverEasy = !!(this.fever && this.fever.active && this.fever.type === 'easy');
+  }
+
+  // 피버 정답 연출(재설계 §2.6): 점수 숫자 2~3개 부양 + 파티클 밀도 2배.
+  //   게임은 자기 자리(정답 위치)에서 '+점수' 하나를 띄우고, core는 그 위에 화면 곳곳으로 더 쏟아
+  //   "점수가 쏟아지는" 해방감을 만든다. 게임 좌표를 모르므로 상단 플레이 영역에 흩뿌린다.
+  //   ⚠️ 어둡게·반전 없음(SPEC §2.5). 파티클 상한(200)은 particle.js가 자동 관리.
+  _feverBurst(pts) {
+    const n = 2 + (Math.random() < 0.5 ? 1 : 0); // 2~3개
+    for (let i = 0; i < n; i++) {
+      const x = LOGICAL_W * (0.22 + Math.random() * 0.56);
+      const y = LOGICAL_H * (0.3 + Math.random() * 0.22);
+      this.ui.floatScore(x, y, `+${pts}`, { color: THEME.gold, size: 58 + Math.random() * 26 });
+      this.particles.emit(x, y, 'sparkle', THEME.gold, 14);
+      this.particles.emit(x, y, 'explode', '#ffe9a8', 12);
+    }
+  }
+
+  // 피버 중 화면 가장자리 빛 번짐(재설계 §2.6). 'lighter' 합성으로 밝게만 — 어둡게/반전 금지(SPEC §2.5).
+  //   1.5Hz 맥박(≤3/초, 광과민 안전). 중앙은 건드리지 않아 정답·HUD 가독성 유지.
+  _renderFeverEdgeGlow(ctx) {
+    const t = this.ui.time;
+    const pulse = 0.5 + 0.5 * Math.sin(t * Math.PI * 2 * 1.5); // 0~1, 1.5Hz
+    const a = 0.16 + 0.16 * pulse;
+    const ex = LOGICAL_W * 0.16;
+    const ey = LOGICAL_H * 0.12;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter'; // 더 밝게만 (어둡게 불가)
+    const fill = (grad) => {
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, LOGICAL_W, LOGICAL_H);
+    };
+    let g = ctx.createLinearGradient(0, 0, ex, 0);
+    g.addColorStop(0, `rgba(255,213,74,${a})`);
+    g.addColorStop(1, 'rgba(255,213,74,0)');
+    fill(g);
+    g = ctx.createLinearGradient(LOGICAL_W, 0, LOGICAL_W - ex, 0);
+    g.addColorStop(0, `rgba(255,213,74,${a})`);
+    g.addColorStop(1, 'rgba(255,213,74,0)');
+    fill(g);
+    g = ctx.createLinearGradient(0, 0, 0, ey);
+    g.addColorStop(0, `rgba(255,190,80,${a})`);
+    g.addColorStop(1, 'rgba(255,190,80,0)');
+    fill(g);
+    g = ctx.createLinearGradient(0, LOGICAL_H, 0, LOGICAL_H - ey);
+    g.addColorStop(0, `rgba(255,190,80,${a})`);
+    g.addColorStop(1, 'rgba(255,190,80,0)');
+    fill(g);
+    ctx.restore();
   }
 
   // 콤보 마일스톤 연출을 일원 관리한다(SPEC §7.1 comboMilestones).
@@ -407,6 +502,15 @@ export class Engine {
         }
         this.particles.update(dt);
       } else {
+        // 피버 'easy' 오버라이드를 매 프레임 동기화(피버 발동/종료 반영). 게임의 nextProblem 이 참조.
+        this._syncFeverEasy();
+        // 피버 무적 오답의 지연 재개: 정지 없이 다음 프레임 시작에 실행(호출부의 this.problem 사용 종료 후).
+        if (this._pendingResume) {
+          const cb = this._pendingResume;
+          this._pendingResume = null;
+          this.markQuestionStart();
+          cb();
+        }
         if (this.game && this.game.update) this.game.update(dt);
         if (this.fever) this.fever.update(dt); // 피버 타이머(정지 중엔 진행 안 함)
         this.particles.update(dt);
@@ -434,6 +538,8 @@ export class Engine {
       case STATE.PAUSED: {
         if (this.game && this.game.render) this.game.render(ctx);
         this.particles.render(ctx);
+        // 피버 엣지 글로우(재설계): 게임/파티클 위, HUD 아래. 정지(PAUSED) 중엔 그리지 않는다.
+        if (this.state === STATE.PLAYING && this.fever && this.fever.active) this._renderFeverEdgeGlow(ctx);
         this.ui.drawHUD(ctx, {
           score: this.scoreManager.score,
           combo: this.scoreManager.combo,
@@ -441,6 +547,7 @@ export class Engine {
           showPause: this.state === STATE.PLAYING,
         });
         this.ui.renderComboOverlays(ctx);
+        this.ui.renderFloatScores(ctx); // 피버 부양 점수 텍스트(재설계)
         this.ui.drawCrisisBorder(ctx); // 위기 테두리(재미 표준, 모든 게임 자동)
         if (this.freeze.active) {
           this.ui.renderAnswerFeedback(ctx, this.freeze.problem, this.freeze.timer / this.freeze.dur);

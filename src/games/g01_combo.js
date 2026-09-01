@@ -25,7 +25,7 @@ export const g01Combo = {
   maxLevel: 4, // 출제 상한 Lv4 (SPEC 2.1 판단형)
   blankRatio: 0.25, // 판단형 빈칸 비율
   opMode: 'multiply', // 곱셈만 출제
-  fever: true, // 재미 표준 피버 opt-in → engine.fever (§7.6)
+  fever: { type: 'easy' }, // 재미 표준 피버 opt-in → engine.fever (§7.6). easy=피버 중 쉬운 문제형
 
   tutorial: {
     text: '문제의 답을 찾아 눌러봐! 빠를수록 점수가 올라가!',

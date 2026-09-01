@@ -35,6 +35,8 @@ const MIN_SEC = 0.9; // 화면 통과 최소 시간(하드 클램프)
 const NEARMISS_TTF = 0.3; // 바닥 닿기 0.3초 이내
 const NEARMISS_DIST_RATIO = 0.1; // 또는 남은 거리 화면 높이 10% 이하
 
+const MULTI_COUNT = 5; // 피버(multi) 중 화면에 유지할 값 개수
+
 export const g02Catch = {
   id: 'g02_catch',
   name: '떨어지는 캐치',
@@ -44,7 +46,7 @@ export const g02Catch = {
   blankRatio: 0, // 반사신경형은 빈칸 미출제
   opMode: 'multiply', // 곱셈만 출제
   comboMilestones: { 7: 'NICE!', 15: 'AWESOME!' },
-  fever: true, // 재미 표준 피버 opt-in → engine.fever (§7.6)
+  fever: { type: 'multi' }, // 재미 표준 피버 opt-in → engine.fever (§7.6). multi=다중 정답형("N단!" 배수 쓸기)
 
   // ── 크기/간격 (L 기반 getter) ──
   get R() {
@@ -108,6 +110,7 @@ export const g02Catch = {
     this.curSpeed = 0;
     this.nearMissUsed = false;
     this.wasFever = false; // 피버 진입/종료 전이 감지
+    this.multiMode = false; // 피버(multi) 중 'N단 배수 쓸기' 모드
 
     this.consecWrong = 0;
     this.speedPenalty = 0;
@@ -193,9 +196,11 @@ export const g02Catch = {
     if (active && !this.wasFever) {
       this.engine.ui.flash('rgba(255,210,120,0.5)', FLASH_DUR);
       this.engine.ui.showComboText('🔥 FEVER!', true);
+      if (fev.type === 'multi') this._enterMulti(); // 다중 정답형: N단 배수 쓸기 모드로 전환
     } else if (!active && this.wasFever) {
       this.feverBanner = { points: fev ? fev.pointsEarned : 0, t: 0, dur: 1.4 };
       this.engine.ui.flash('rgba(120,200,255,0.4)', FLASH_DUR);
+      if (this.multiMode) this._exitMulti(); // 일반 문제 모드로 복귀
     }
     this.wasFever = active;
 
@@ -209,16 +214,27 @@ export const g02Catch = {
       f.age += dt;
     }
 
-    // 정답이 바닥을 넘으면 '놓침'(현행 유지: 정지 없음, 무음, 라이프 유지)
-    const correct = this.fallers.find((f) => f.correct && !f.judged);
-    if (correct && correct.y >= this.FLOOR_Y && correct.age > 0.3) {
-      this.engine.answerWrong(this.problem, null, { loseLife: false, freeze: false, affectLevel: false, missed: true });
-      this.engine.particles.emit(correct.x, this.FLOOR_Y, 'pop', THEME.wrong, 16);
-      this.missEffect = { x: correct.x, y: this.FLOOR_Y, t: 0, dur: MISS_DUR };
-      this._startWave();
-      return;
+    if (this.multiMode) {
+      // 다중 정답형: 놓친 값(화면 밖)·터뜨린 값은 제거하고 화면을 계속 채운다(놓쳐도 무해).
+      this.fallers = this.fallers.filter((f) => !f.judged && f.y - this.R <= L.H);
+      let guard = 0;
+      while (this.fallers.length < MULTI_COUNT && guard++ < MULTI_COUNT + 2) {
+        const nf = this._spawnOneMulti();
+        if (!nf) break;
+        this.fallers.push(nf);
+      }
+    } else {
+      // 정답이 바닥을 넘으면 '놓침'(현행 유지: 정지 없음, 무음, 라이프 유지)
+      const correct = this.fallers.find((f) => f.correct && !f.judged);
+      if (correct && correct.y >= this.FLOOR_Y && correct.age > 0.3) {
+        this.engine.answerWrong(this.problem, null, { loseLife: false, freeze: false, affectLevel: false, missed: true });
+        this.engine.particles.emit(correct.x, this.FLOOR_Y, 'pop', THEME.wrong, 16);
+        this.missEffect = { x: correct.x, y: this.FLOOR_Y, t: 0, dur: MISS_DUR };
+        this._startWave();
+        return;
+      }
+      this.fallers = this.fallers.filter((f) => f.correct || f.y - this.R <= L.H);
     }
-    this.fallers = this.fallers.filter((f) => f.correct || f.y - this.R <= L.H);
 
     for (let i = this.popEffects.length - 1; i >= 0; i--) {
       this.popEffects[i].t += dt;
@@ -240,7 +256,7 @@ export const g02Catch = {
 
   onTouch(x, y, phase) {
     if (phase !== 'start') return;
-    if (this.time < this.inputLockUntil) return; // 판정 후 100ms 중복 입력 무시
+    if (!this.multiMode && this.time < this.inputLockUntil) return; // 판정 후 100ms 중복(일반 모드만)
     if (!this.fallers.length) return;
 
     let target = null;
@@ -257,8 +273,14 @@ export const g02Catch = {
     if (!target) return;
 
     target.judged = true;
-    this.inputLockUntil = this.time + INPUT_LOCK;
 
+    // 다중 정답형: 배수=정답(연타 허용, 입력락 없음) / 함정=무해
+    if (this.multiMode) {
+      this._judgeMultiTap(target);
+      return;
+    }
+
+    this.inputLockUntil = this.time + INPUT_LOCK;
     if (target.correct) this._judgeCorrect(target);
     else this._judgeWrong(target);
   },
@@ -305,6 +327,78 @@ export const g02Catch = {
     }
     // 게이지 -20은 answerWrong(피버 opt-in, !missed)이 자동. 정답표시 1.2초 후 다음 웨이브.
     e.answerWrong(this.problem, target.value, { loseLife: true, onResume: () => this._startWave() });
+  },
+
+  // ── 피버 multi 유형: "N단!" 배수 쓸기 ─────────────────────────
+  // 진입 시 일반 문제(1정답+오답)를 끄고, 화면을 N단 배수(80%)+함정(20%)으로 채운다.
+  // 배수를 누르면 전부 정답(연타), 함정은 무적이라 무해. 종료 시 일반 모드로 매끄럽게 복귀.
+  _enterMulti() {
+    this.multiMode = true;
+    this.nearMissUsed = true; // multi에는 니어미스 개념 없음
+    this._spawnMultiFallers(MULTI_COUNT);
+  },
+  _exitMulti() {
+    this.multiMode = false;
+    this.fallers = [];
+    this.popEffects = []; // 남은 값·연출 정리(전환 매끄럽게)
+    this._startWave(); // 일반 문제 모드 복귀(새 문제 로드)
+  },
+  // fv.fillValues로 초기 N개를 만든다([{value, isMultiple}]). 위치는 일반 웨이브와 같은 방식(L 기반).
+  _spawnMultiFallers(count) {
+    const fv = this.engine.fever;
+    const items = fv.fillValues(count);
+    const R = this.R;
+    const minX = L.safe + R;
+    const maxX = L.W - L.safe - R;
+    const laneW = (maxX - minX) / Math.max(1, items.length);
+    const order = shuffle(items.map((_, i) => i));
+    this.fallers = items.map((it, i) => {
+      const gap = Math.max(0, laneW - 2 * R);
+      const jitter = (Math.random() - 0.5) * gap * 0.3;
+      const x = minX + laneW * (i + 0.5) + jitter;
+      const rank = order.indexOf(i);
+      const y = -R - rank * this.STAGGER - Math.random() * L.gu(1.5);
+      return { value: it.value, correct: false, isMultiple: it.isMultiple, x, y, age: 0, judged: false };
+    });
+  },
+  // 보충용 값 하나(배수 비율은 core 기본 0.8). 화면 밖으로 나갔거나 터뜨린 자리를 채운다.
+  _spawnOneMulti() {
+    const fv = this.engine.fever;
+    if (!fv || !fv.active || fv.type !== 'multi') return null;
+    const ratio = (fv.cfg && fv.cfg.multiMultipleRatio) || 0.8;
+    const value = Math.random() < ratio ? fv.randomMultiple() : fv.randomTrap();
+    const R = this.R;
+    const minX = L.safe + R;
+    const maxX = L.W - L.safe - R;
+    const x = minX + Math.random() * (maxX - minX);
+    const y = -R - Math.random() * L.gu(3);
+    return { value, correct: false, isMultiple: fv.isMultiple(value), x, y, age: 0, judged: false };
+  },
+  _judgeMultiTap(target) {
+    const e = this.engine;
+    const fv = e.fever;
+    const dan = fv.dan;
+    if (fv.isMultiple(target.value)) {
+      // 배수 = 정답. dan×몫 = value 형태의 곱셈 사실로 기록(단별 정답률에도 정상 반영).
+      const q = Math.round(target.value / dan);
+      const prob = { a: dan, b: q, op: '×', answer: target.value, remainder: null, level: 1, text: `${dan} × ${q}`, blank: null };
+      const base = 50 + e.scoreManager.combo * 5;
+      e.answerCorrect(prob, target.value, base); // 점수배수·게이지·정답음·연출 자동(피버 무적)
+      const shown = base * (fv && fv.active ? fv.scoreMultiplier : 1);
+      this._emitCorrectParticles(target, false);
+      this.popEffects.push({ x: target.x, y: target.y, value: target.value, t: 0, dur: POP_DUR });
+      this.floatTexts.push({ x: target.x, y: target.y, text: `+${shown}`, color: THEME.gold, size: L.font(0.04), t: 0, dur: FLOAT_DUR });
+      this.hitStop = HITSTOP;
+      this.zoomT = ZOOM_DUR;
+      e.ui.flash('rgba(255,220,140,0.35)', FLASH_DUR);
+      this._haptic(15);
+    } else {
+      // 함정 = 무해(피버 무적). 세션 기록만 하고 복습 큐엔 넣지 않는다(정식 출제 문제가 아니므로).
+      const prob = { a: target.value, b: dan, op: '÷', answer: Math.floor(target.value / dan), remainder: target.value % dan, level: 1, text: `${target.value} ÷ ${dan}`, blank: null };
+      e.answerWrong(prob, target.value, { affectLevel: false, freeze: false });
+      this.missEffect = { x: target.x, y: target.y, t: 0, dur: MISS_DUR };
+      e.particles.emit(target.x, target.y, 'pop', THEME.wrong, 12);
+    }
   },
 
   _emitCorrectParticles(target, nearMiss) {
@@ -366,6 +460,16 @@ export const g02Catch = {
     const cx = L.W / 2;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
+    // 피버 multi: "N단!" + 안내. 일반 문제 대신 표시한다.
+    if (this.multiMode && this.engine.fever && this.engine.fever.dan) {
+      ctx.fillStyle = THEME.gold;
+      ctx.font = font(L.font(0.09));
+      ctx.fillText(`${this.engine.fever.dan}단!`, cx, this.PROBLEM_Y);
+      ctx.fillStyle = THEME.text;
+      ctx.font = font(L.font(0.03));
+      ctx.fillText('배수를 모두 터뜨려!', cx, this.PROBLEM_Y + L.gu(1.7));
+      return;
+    }
     ctx.fillStyle = THEME.text;
     ctx.font = font(L.font(0.07));
     ctx.fillText(`${this.problem.text} = ?`, cx, this.PROBLEM_Y);

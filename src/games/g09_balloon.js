@@ -31,6 +31,7 @@ import { THEME, font } from '../core/ui.js';
 const BASE_RISE_SEC = 6.0; // 콤보 0에서 부양 영역을 지나는 데 걸리는 시간
 const SPEED_CAP = 2.4; // 상승 속도 배율 상한(반드시 클램프) — 콤보 5마다 ×1.15
 const RAPID_WINDOW = 2.0; // 이 시간(초) 안에 정답 3연속이면 RAPID FIRE
+const MULTI_COUNT = 7; // 피버(multi) 중 화면에 유지할 풍선 개수
 
 // 풍선 장식 색(정오답과 무관 — 색으로 정답을 드러내지 않기 위해 상관없이 배정, SPEC 2.5)
 const FESTIVE = ['#e05a7a', '#4a9eff', '#ffb84a', '#8b7bff', '#3ec1a0', '#ff8a5c'];
@@ -46,7 +47,7 @@ export const g09Balloon = {
   // 게임 고유 콤보 문구(그 외 10/20/30은 core 기본). core가 일원 관리(SPEC §7.1).
   //   콤보는 '라운드 완성' 단위로 오르므로 여기 값들도 완성 라운드 수 기준이다.
   comboMilestones: { 5: 'BURST!', 15: 'EXPLOSION!', 25: 'FIREWORKS!' },
-  fever: true, // 재미 표준 피버 opt-in → engine.fever (§7.6)
+  fever: { type: 'multi' }, // 재미 표준 피버 opt-in → engine.fever (§7.6). multi=다중 정답형("N단!" 배수 쓸기)
 
   // ── 풍선 크기/간격 (전부 L 기반 getter — 논리 캔버스가 커져도 함께 스케일) ──
   get rx() {
@@ -108,6 +109,7 @@ export const g09Balloon = {
     this.lastPopTime = -99; // 마지막 정답 팝 시각(연쇄 판정)
     this.nearMissUsed = false; // 한 라운드 니어미스 1회 제한
     this.wasFever = false; // 피버 진입/종료 전이 감지
+    this.multiMode = false; // 피버(multi) 중 'N단 배수 터뜨리기' 모드(라운드 개념 없음)
     this.feverBanner = null; // 피버 종료 "FEVER +N"
     this.time = 0; // 게임 진행 시간(초) — freeze 중엔 멈춤(update 미호출)
     this._startRound();
@@ -193,6 +195,80 @@ export const g09Balloon = {
     this.nearMissUsed = false;
   },
 
+  // ── 피버 multi 유형: "N단!" 배수 터뜨리기 (라운드 개념 없음, 계속 터뜨리기) ──
+  _enterMulti() {
+    this.multiMode = true;
+    this.nearMissUsed = true; // multi에는 니어미스/라운드 개념 없음
+    this.roundCorrectTotal = 0;
+    this.recentPops.length = 0;
+    this.chain = 0;
+    this._spawnBalloonsMulti(MULTI_COUNT);
+  },
+  _exitMulti() {
+    this.multiMode = false;
+    this.balloons = [];
+    this.popEffects = [];
+    this.recentPops.length = 0;
+    this.chain = 0;
+    this._startRound(); // 일반 모드(값 같은 풍선 찾기) 복귀
+  },
+  // fv.fillValues로 초기 N개 풍선(배수 80% + 함정 20%). 라벨은 숫자(빠르게 훑기 위함).
+  _spawnBalloonsMulti(count) {
+    const fv = this.engine.fever;
+    const items = fv.fillValues(count);
+    const rx = this.rx;
+    const minX = L.safe + rx;
+    const maxX = L.W - L.safe - rx;
+    const laneW = (maxX - minX) / Math.max(1, items.length);
+    const order = shuffle(items.map((_, i) => i));
+    const speed = this._riseSpeed();
+    const floorBase = L.zone.floor + this.ry;
+    this.balloons = items.map((it, i) => {
+      const gap = Math.max(0, laneW - 2 * rx);
+      const jitter = (Math.random() - 0.5) * gap;
+      const x = minX + laneW * (i + 0.5) + jitter;
+      const rank = order.indexOf(i);
+      const y = floorBase + rank * this.stagger + Math.random() * L.gu(1);
+      return { value: it.value, correct: it.isMultiple, isMultiple: it.isMultiple, label: String(it.value), x, y, vy: speed, wobble: Math.random() * Math.PI * 2, hue: FESTIVE[i % FESTIVE.length] };
+    });
+  },
+  // 보충용 풍선 하나(배수 비율 core 기본 0.8). 화면 밖으로 나갔거나 터뜨린 자리를 채운다.
+  _spawnOneBalloonMulti() {
+    const fv = this.engine.fever;
+    if (!fv || !fv.active || fv.type !== 'multi') return null;
+    const ratio = (fv.cfg && fv.cfg.multiMultipleRatio) || 0.8;
+    const value = Math.random() < ratio ? fv.randomMultiple() : fv.randomTrap();
+    const rx = this.rx;
+    const minX = L.safe + rx;
+    const maxX = L.W - L.safe - rx;
+    const x = minX + Math.random() * (maxX - minX);
+    const y = L.zone.floor + this.ry + Math.random() * L.gu(3);
+    return { value, correct: fv.isMultiple(value), isMultiple: fv.isMultiple(value), label: String(value), x, y, vy: this._riseSpeed(), wobble: Math.random() * Math.PI * 2, hue: FESTIVE[Math.floor(Math.random() * FESTIVE.length)] };
+  },
+  _judgeMultiPop(target) {
+    const e = this.engine;
+    const fv = e.fever;
+    const dan = fv.dan;
+    this.balloons = this.balloons.filter((b) => b !== target);
+    if (fv.isMultiple(target.value)) {
+      // 배수 = 정답. dan×몫 = value 곱셈 사실로 기록(콤보 +1·단별 정답률 반영). 터뜨릴 때마다 점수.
+      const q = Math.round(target.value / dan);
+      const prob = { a: dan, b: q, op: '×', answer: target.value, remainder: null, level: 1, text: `${dan} × ${q}`, blank: null };
+      const base = 70 + e.scoreManager.combo * 8;
+      e.answerCorrect(prob, target.value, base); // 점수배수·게이지·정답음·연출 자동(피버 무적)
+      this.popEffects.push({ x: target.x, y: target.y, label: target.label, t: 0, dur: 0.6 });
+      e.particles.emit(target.x, target.y, 'explode', THEME.correct, 20);
+      e.particles.emit(target.x, target.y, 'sparkle', target.hue, 10);
+      e.sound.play('pop');
+    } else {
+      // 함정 = 무해(피버 무적). 세션만 기록, 복습 큐엔 넣지 않는다(정식 출제 문제가 아니므로).
+      const prob = { a: target.value, b: dan, op: '÷', answer: Math.floor(target.value / dan), remainder: target.value % dan, level: 1, text: `${target.value} ÷ ${dan}`, blank: null };
+      e.answerWrong(prob, target.value, { affectLevel: false, freeze: false });
+      this.missEffect = { x: target.x, y: target.y, t: 0, dur: 0.5 };
+      e.particles.emit(target.x, target.y, 'pop', THEME.wrong, 12);
+    }
+  },
+
   update(dt) {
     this.time += dt;
 
@@ -202,9 +278,11 @@ export const g09Balloon = {
     if (active && !this.wasFever) {
       this.engine.ui.flash('rgba(255,210,120,0.5)', 0.09);
       this.engine.ui.showComboText('🔥 FEVER!', true);
+      if (fev.type === 'multi') this._enterMulti(); // N단 배수 터뜨리기 모드로 전환
     } else if (!active && this.wasFever) {
       this.feverBanner = { points: fev ? fev.pointsEarned : 0, t: 0, dur: 1.4 };
       this.engine.ui.flash('rgba(120,200,255,0.4)', 0.09);
+      if (this.multiMode) this._exitMulti(); // 일반(값 같은 풍선 찾기) 모드로 복귀
     }
     this.wasFever = active;
     if (this.feverBanner) {
@@ -221,22 +299,33 @@ export const g09Balloon = {
       b.wobble += dt * 2.2;
     }
 
-    // 정답 풍선이 위로 화면을 벗어나면 '탈출' = 놓침
-    //   - 콤보 리셋, 라이프 유지, 흐름 정지 없음(freeze:false), 레벨·복습큐 영향 없음
-    //   - 세션엔 놓침(missed:true)으로 기록. 즉시 새 라운드로 진행(게임 흐름 유지).
-    const escaped = this.balloons.find((b) => b.correct && b.y + this.ry < L.zone.playTop);
-    if (escaped) {
-      this.engine.answerWrong(this.problem, null, { loseLife: false, freeze: false, affectLevel: false, missed: true });
-      this.engine.particles.emit(escaped.x, L.zone.playTop, 'pop', THEME.wrong, 14);
-      this.missEffect = { x: escaped.x, y: L.zone.playTop + L.gu(1), t: 0, dur: 0.5 };
-      this.recentPops.length = 0; // 콤보가 리셋됐으니 RAPID 창도 초기화
-      this.chain = 0;
-      this._startRound();
-      return;
-    }
+    if (this.multiMode) {
+      // 다중 정답형: 위로 벗어난 풍선(배수든 함정이든)은 무해하게 제거하고 새로 보충(놓쳐도 무해).
+      this.balloons = this.balloons.filter((b) => b.y + this.ry >= L.zone.playTop);
+      let guard = 0;
+      while (this.balloons.length < MULTI_COUNT && guard++ < MULTI_COUNT + 2) {
+        const nb = this._spawnOneBalloonMulti();
+        if (!nb) break;
+        this.balloons.push(nb);
+      }
+    } else {
+      // 정답 풍선이 위로 화면을 벗어나면 '탈출' = 놓침
+      //   - 콤보 리셋, 라이프 유지, 흐름 정지 없음(freeze:false), 레벨·복습큐 영향 없음
+      //   - 세션엔 놓침(missed:true)으로 기록. 즉시 새 라운드로 진행(게임 흐름 유지).
+      const escaped = this.balloons.find((b) => b.correct && b.y + this.ry < L.zone.playTop);
+      if (escaped) {
+        this.engine.answerWrong(this.problem, null, { loseLife: false, freeze: false, affectLevel: false, missed: true });
+        this.engine.particles.emit(escaped.x, L.zone.playTop, 'pop', THEME.wrong, 14);
+        this.missEffect = { x: escaped.x, y: L.zone.playTop + L.gu(1), t: 0, dur: 0.5 };
+        this.recentPops.length = 0; // 콤보가 리셋됐으니 RAPID 창도 초기화
+        this.chain = 0;
+        this._startRound();
+        return;
+      }
 
-    // 오답 풍선이 위로 벗어나면 무해하게 제거(라이프/콤보 영향 없음)
-    this.balloons = this.balloons.filter((b) => b.correct || b.y + this.ry >= L.zone.playTop);
+      // 오답 풍선이 위로 벗어나면 무해하게 제거(라이프/콤보 영향 없음)
+      this.balloons = this.balloons.filter((b) => b.correct || b.y + this.ry >= L.zone.playTop);
+    }
 
     // 팝 연출 갱신
     for (let i = this.popEffects.length - 1; i >= 0; i--) {
@@ -260,21 +349,31 @@ export const g09Balloon = {
       this.engine.fever.renderGauge(ctx, { x: L.safe, y: L.zone.gauge, w: L.W - L.safe * 2, h: L.gu(0.5) });
     }
 
-    // 상단 고정 문제(최소 80px 규정 — 화면 높이의 7.5%)
-    ctx.fillStyle = THEME.text;
-    ctx.font = font(L.font(0.075));
-    ctx.fillText(`${this.problem.text} = ?`, cx, L.zone.problem);
-
-    // 안내 + 남은 정답 풍선 '점' 표시(●●○) — 숫자로 세지 말고 화면을 훑게 만든다.
-    const remain = this.balloons.filter((b) => b.correct).length;
-    ctx.fillStyle = THEME.subtext;
-    ctx.font = font(L.font(0.026), 'normal');
-    ctx.fillText('값이 같은 풍선을 모두 터뜨려!', cx, L.zone.problem + L.gu(1.6));
-    this._drawRemainDots(ctx, cx, L.zone.problem + L.gu(2.9), remain, this.roundCorrectTotal);
-    if (this.problem.fromReview) {
+    // 피버 multi: "N단!" + 안내. 일반 문제/점 표시 대신 표시한다.
+    if (this.multiMode && this.engine.fever && this.engine.fever.dan) {
       ctx.fillStyle = THEME.gold;
-      ctx.font = font(L.font(0.028));
-      ctx.fillText('🔁 다시 도전!', cx, L.zone.problem + L.gu(4.1));
+      ctx.font = font(L.font(0.09));
+      ctx.fillText(`${this.engine.fever.dan}단!`, cx, L.zone.problem);
+      ctx.fillStyle = THEME.text;
+      ctx.font = font(L.font(0.03), 'normal');
+      ctx.fillText('배수를 모두 터뜨려!', cx, L.zone.problem + L.gu(1.7));
+    } else {
+      // 상단 고정 문제(최소 80px 규정 — 화면 높이의 7.5%)
+      ctx.fillStyle = THEME.text;
+      ctx.font = font(L.font(0.075));
+      ctx.fillText(`${this.problem.text} = ?`, cx, L.zone.problem);
+
+      // 안내 + 남은 정답 풍선 '점' 표시(●●○) — 숫자로 세지 말고 화면을 훑게 만든다.
+      const remain = this.balloons.filter((b) => b.correct).length;
+      ctx.fillStyle = THEME.subtext;
+      ctx.font = font(L.font(0.026), 'normal');
+      ctx.fillText('값이 같은 풍선을 모두 터뜨려!', cx, L.zone.problem + L.gu(1.6));
+      this._drawRemainDots(ctx, cx, L.zone.problem + L.gu(2.9), remain, this.roundCorrectTotal);
+      if (this.problem.fromReview) {
+        ctx.fillStyle = THEME.gold;
+        ctx.font = font(L.font(0.028));
+        ctx.fillText('🔁 다시 도전!', cx, L.zone.problem + L.gu(4.1));
+      }
     }
 
     // 풍선(정답/오답 색 동일군에서 장식색만 다름 — 색으로 정답 노출 금지)
@@ -401,6 +500,13 @@ export const g09Balloon = {
     if (!target) return;
 
     const e = this.engine;
+
+    // 피버 multi: 배수=정답(연타), 함정=무해. 라운드 개념 없이 계속 터뜨린다.
+    if (this.multiMode) {
+      this._judgeMultiPop(target);
+      return;
+    }
+
     if (target.correct) {
       const fmult = e.fever && e.fever.active ? e.fever.scoreMultiplier : 1;
 

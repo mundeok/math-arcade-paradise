@@ -49,6 +49,11 @@ const BANDS = {
   5: { pirates: [8, 9], qMin: 6, qMax: 9, cap: 90 }, // 두 자리 나눗셈(74÷9 등)
 };
 
+// 피버 easy 전용 밴드(재설계 2단계): 보석 10개 이하·해적 2~4명(Lv1~2 수준). core의 easy 오버라이드는
+//   nextProblem을 쓰지 않는 이 게임엔 닿지 않으므로, 게임이 피버 상태를 직접 읽어 이 밴드를 쓴다.
+const FEVER_EASY_BAND = { pirates: [2, 4], qMin: 1, qMax: 3, cap: 10 };
+const FEVER_EASY_ZERO_R = 0.5; // 피버 easy: 나누어떨어짐(나머지 0) 비율↑ → 배분이 딱 떨어져 빠르게 끝남
+
 export const g10Treasure = {
   id: 'g10_remain', // ⚠️ CATALOG/저장 키와 일치(파일명 g10_treasure와 별개)
   name: '나머지 보물찾기',
@@ -57,7 +62,7 @@ export const g10Treasure = {
   maxLevel: 5,
   blankRatio: 0, // 빈칸 미출제(직접 배분 게임)
   opMode: 'divide',
-  fever: true,
+  fever: { type: 'easy' }, // easy=피버 중 쉬운 문제형 (§2.6/§7.6)
   comboMilestones: { 5: '보물 사냥꾼!', 10: '나눗셈 척척!', 20: '해적왕!', 30: '전설의 분배!' },
 
   tutorial: {
@@ -122,12 +127,21 @@ export const g10Treasure = {
     }
   },
 
+  // 피버 easy 유형이 지금 발동 중인가(core는 자체 생성 게임엔 문제 하향을 못 주므로 게임이 직접 읽는다).
+  _feverEasyActive() {
+    const f = this.engine.fever;
+    return !!(f && f.active && f.type === 'easy');
+  },
+
   // ── 문제 생성(밴드) ───────────────────────────────────────
   _nextProblem() {
     const e = this.engine;
+    const easy = this._feverEasyActive();
     const level = clamp(e.problemGenerator.currentLevel || 1, 1, this.maxLevel);
-    const band = BANDS[level];
+    // 피버 easy: 레벨과 무관하게 쉬운 밴드(보석≤10·해적2~4). 그 외엔 레벨별 밴드.
+    const band = easy ? FEVER_EASY_BAND : BANDS[level];
     const pirates = this._activeDans(band.pirates);
+    const zeroR = easy ? FEVER_EASY_ZERO_R : 0.2; // 나누어떨어짐 비율(피버 easy는 높임)
 
     let P, q, r, D;
     let guard = 0;
@@ -135,7 +149,7 @@ export const g10Treasure = {
       guard++;
       P = pick(pirates);
       q = ri(band.qMin, band.qMax);
-      r = Math.random() < 0.2 ? 0 : ri(1, P - 1); // 20%는 나누어떨어짐
+      r = Math.random() < zeroR ? 0 : ri(1, P - 1);
       D = P * q + r;
     } while (D > band.cap && guard < 60);
     if (D > band.cap) {
@@ -155,7 +169,8 @@ export const g10Treasure = {
     this.reveal = null;
     this.movingGems = [];
 
-    this.problem = { a: D, b: P, op: '÷', answer: q, remainder: r > 0 ? r : null, text: `${D} ÷ ${P}`, blank: null, level };
+    // 피버 easy 문제는 실제로 쉬우므로 리포트 오분류를 막기 위해 level=1로 기록(축 A 자체는 불변).
+    this.problem = { a: D, b: P, op: '÷', answer: q, remainder: r > 0 ? r : null, text: `${D} ÷ ${P}`, blank: null, level: easy ? 1 : level };
 
     // 제한시간: 보석 수에 비례(넉넉히). 교사 배율 반영.
     const base = 8 + D * 0.7;

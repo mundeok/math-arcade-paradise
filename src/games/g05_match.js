@@ -45,7 +45,7 @@ export const g05Match = {
   blankRatio: 0.4, // 사고형(□ 혼합)
   opMode: 'mixed', // 곱셈·나눗셈·빈칸 혼합(교사 설정이 특정 연산이면 교사 우선)
   comboMilestones: { 5: 'CHAIN!', 10: '완벽한 연결!', 20: '매칭 마스터!', 30: '전설의 짝!' },
-  fever: true,
+  fever: { type: 'easy' }, // easy=피버 중 쉬운 문제형 (§2.6/§7.6)
 
   tutorial: {
     text: '문제를 누르고, 맞는 답을 눌러서 짝을 지어줘!',

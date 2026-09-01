@@ -71,10 +71,12 @@ export class SoundManager {
   // 정답 효과음 — 콤보에 따라 반음씩 상승(12음마다 옥타브↑, 상한 +2옥타브). (SPEC §7 재미 표준)
   //   모든 게임이 같은 규칙을 따르도록 core에 둔다. OFF면 무음(tone이 처리).
   //   opts.boost: true면 한 옥타브 더 위로(피버 등 고조 구간).
+  //   opts.wide:  true면 콤보당 상승 폭을 2배(반음→온음)로 — 피버 재설계의 '음정 상승 폭 2배'.
   playCorrect(combo = 0, opts = {}) {
     if (!this.enabled || !this.ctx) return;
+    const step = opts.wide ? 2 : 1; // 피버: 콤보당 상승 폭 2배
     const octave = Math.min(Math.floor(combo / 12), 2) + (opts.boost ? 1 : 0);
-    const semi = combo % 12;
+    const semi = (combo % 12) * step;
     const f = 523.25 * Math.pow(2, octave + semi / 12); // C5 기준
     this.tone(f, 0, 0.09, { type: 'triangle', vol: 0.25 });
     this.tone(f * 1.5, 0.05, 0.09, { type: 'triangle', vol: 0.15 }); // 5도 위 살짝

@@ -34,6 +34,7 @@ export class UI {
   constructor(engine) {
     this.engine = engine;
     this.comboOverlays = []; // 콤보 연출 텍스트 [{text, t, dur, big}]
+    this.floatScores = []; // 부양 점수 텍스트 [{x,y,vy,text,color,size,t,dur}] — 피버 정답 시 엔진이 소환
     this.shakeTime = 0;
     this.shakeMag = 0;
     this.flashTime = 0;
@@ -53,6 +54,7 @@ export class UI {
 
   reset() {
     this.comboOverlays.length = 0;
+    this.floatScores.length = 0;
     this.shakeTime = 0;
     this.shakeMag = 0;
     this.flashTime = 0;
@@ -69,6 +71,14 @@ export class UI {
       const o = this.comboOverlays[i];
       o.t += dt;
       if (o.t >= o.dur) this.comboOverlays.splice(i, 1);
+    }
+    // 부양 점수 텍스트: 위로 떠오르며 서서히 감속·소멸
+    for (let i = this.floatScores.length - 1; i >= 0; i--) {
+      const o = this.floatScores[i];
+      o.t += dt;
+      o.y += o.vy * dt;
+      o.vy += 60 * dt; // 살짝 감속(중력 반대 방향으로 발사됐다가 느려짐)
+      if (o.t >= o.dur) this.floatScores.splice(i, 1);
     }
     if (this.shakeTime > 0) this.shakeTime = Math.max(0, this.shakeTime - dt);
     if (this.flashTime > 0) this.flashTime = Math.max(0, this.flashTime - dt);
@@ -174,6 +184,32 @@ export class UI {
       ctx.strokeStyle = 'rgba(0,0,0,0.55)';
       ctx.strokeText(o.text, 0, 0);
       ctx.fillStyle = THEME.gold;
+      ctx.fillText(o.text, 0, 0);
+      ctx.restore();
+    }
+  }
+
+  // ── 부양 점수 텍스트 (재미 표준: 피버 정답 시 엔진이 2~3개 소환) ──
+  //   위치·색·크기는 호출자(엔진)가 지정. 게임 자체 부양 텍스트와 별개로 core가 관리한다.
+  floatScore(x, y, text, { color = THEME.gold, size = 64, dur = 0.7 } = {}) {
+    this.floatScores.push({ x, y, vy: -120, text, color, size, t: 0, dur });
+  }
+  renderFloatScores(ctx) {
+    for (const o of this.floatScores) {
+      const p = o.t / o.dur;
+      const alpha = p < 0.6 ? 1 : 1 - (p - 0.6) / 0.4;
+      const scale = 0.7 + 0.3 * Math.min(1, p * 4); // 살짝 커지며 등장
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, alpha);
+      ctx.translate(o.x, o.y);
+      ctx.scale(scale, scale);
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = font(Math.round(o.size));
+      ctx.lineWidth = 8;
+      ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+      ctx.strokeText(o.text, 0, 0);
+      ctx.fillStyle = o.color;
       ctx.fillText(o.text, 0, 0);
       ctx.restore();
     }

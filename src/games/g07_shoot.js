@@ -50,7 +50,7 @@ export const g07Shoot = {
   blankRatio: 0, // 반사신경형은 빈칸 미출제
   opMode: 'multiply', // 곱셈만 출제(교사 설정이 특정 연산이면 교사 우선)
   comboMilestones: { 10: '명중왕!', 20: '무적포격!' }, // 게임 고유 문구(core 기본 대체)
-  fever: true, // 재미 표준 피버 opt-in → engine.fever (§7.6)
+  fever: { type: 'easy' }, // 재미 표준 피버 opt-in → engine.fever (§7.6). easy=피버 중 쉬운 문제형
 
   // ── 크기(L 기반 getter) ──
   get enemyR() {
