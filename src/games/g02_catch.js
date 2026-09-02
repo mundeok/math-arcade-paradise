@@ -29,13 +29,13 @@ const FLOAT_DUR = 0.6; // 획득 점수 부양(≤0.70)
 const MISS_DUR = 0.4; // 놓침 "앗!"
 
 const INPUT_LOCK = 0.1; // 판정 후 중복 입력 무시(100ms)
-const BASE_SEC = 1.8; // 콤보 0에서 화면 통과 시간
-const MIN_SEC = 0.9; // 화면 통과 최소 시간(하드 클램프)
+const BASE_SEC = 2.0; // 콤보 0에서 화면 통과 시간(재조정: 3학년 적응 위해 1.8→2.0으로 늦춤)
+const MIN_SEC = 1.2; // 화면 통과 최소 시간(하드 클램프, 0.9→1.2로 상향 — 피버·고콤보에서도 잡을 시간 보장)
 
 const NEARMISS_TTF = 0.3; // 바닥 닿기 0.3초 이내
 const NEARMISS_DIST_RATIO = 0.1; // 또는 남은 거리 화면 높이 10% 이하
 
-const MULTI_COUNT = 5; // 피버(multi) 중 화면에 유지할 값 개수
+const MULTI_COUNT = 7; // 피버(multi) 중 화면에 유지할 값 개수(재조정: 5→7 — 빨라지는 대신 많아진다)
 
 export const g02Catch = {
   id: 'g02_catch',
@@ -135,7 +135,10 @@ export const g02Catch = {
     if (e.scoreManager.lives <= 1) step = Math.min(step, 1.0); // 라이프1 상승 중단
     if (e.fever && e.fever.graceActive) step = Math.min(step, 1.0); // 피버 종료 직후 grace
     if (step < 1.0) step = 1.0;
-    step *= e.fever ? e.fever.speedMultiplier : 1; // 피버 배속(램프 포함)
+    // ⚠️ 재조정: 피버 중엔 빨라지지 않는다(배수 1.0). 피버는 '빠름'이 아니라 '많음'(동시 7개)으로 바뀜.
+    //   종료 직후 램프다운 동안만 speedMultiplier(1.35→1.0)를 반영해 부드럽게 복귀한다.
+    const fm = e.fever ? (e.fever.active ? 1.0 : e.fever.speedMultiplier) : 1;
+    step *= fm;
 
     let sec = BASE_SEC / step;
     sec *= e.settings.timeScale || 1;

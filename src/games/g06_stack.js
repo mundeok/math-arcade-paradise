@@ -25,7 +25,7 @@ import { THEME, font, roundRect } from '../core/ui.js';
 
 const BASE_FALL_SEC = 2.6; // 콤보 0에서 낙하 거리(fallDist)를 통과하는 시간
 const FALL_MIN_SEC = 1.0; // 화면 통과 최소 시간(하드 클램프) — 반응 시간 보장
-const TARGETS = [5, 8, 12, 15, 20]; // 웨이브 목표(이후 +5씩)
+const TARGETS = [4, 5, 6, 7, 8]; // 웨이브 목표(재조정: 낮고 짧게 → 완료 연출이 자주·블록 두껍게·축적감↑)
 const TILT_DEG = [0, 5, 12]; // 오답 0/1/2개 누적 시 기울기
 const COLLAPSE_DEG = 20; // 오답 3개 → 붕괴 각도
 const LANES = 4; // 낙하 레인 수(정답/오답 x축 격리용 고정 그리드)
@@ -130,7 +130,8 @@ export const g06Stack = {
     this.missEffect = null;
     this.recoverEffect = null;
     this.waveGlow = null;
-    this.silhouette = 0; // 이제까지 완료한 최고 높이(배경 실루엣)
+    this.compressEffect = null; // 같은 값 3개 압축(동수누가) 연출
+    this.completedHeights = []; // 지금까지 완료한 웨이브 높이들(배경 실루엣 누적)
     this.time = 0;
     this.curFall = 0;
     this.nearMissUsed = false;
@@ -151,8 +152,9 @@ export const g06Stack = {
   },
 
   _targetFor(i) {
-    if (i < TARGETS.length) return TARGETS[i];
-    return TARGETS[TARGETS.length - 1] + 5 * (i - TARGETS.length + 1);
+    // 목표 높이를 순환시킨다(5→8→12→15→20 후 다시 5). 20칸 초과로 블록이 실선처럼 얇아지고
+    //   웨이브가 무한정 길어지는 문제 방지. 상승감은 높이 대신 속도·오답수(콤보 유지)로 만든다.
+    return TARGETS[i % TARGETS.length];
   },
   get target() {
     return this._targetFor(this.waveIndex);
@@ -163,8 +165,9 @@ export const g06Stack = {
     const floorY = L.zone.floor;
     const target = Math.max(this.target, 1);
     const availH = floorY - L.zone.playTop - L.gu(1);
-    const bh = Math.min(L.gu(1.2), availH / target);
-    return { bh, bw: this.towerW, gap: Math.min(L.gu(0.12), bh * 0.12) };
+    // 목표가 낮아져(최대 8칸) 블록을 두껍게 유지한다(축적감). 축소는 화면을 넘칠 때만 최소한 적용.
+    const bh = Math.min(L.gu(1.6), availH / target);
+    return { bh, bw: this.towerW, gap: Math.min(L.gu(0.14), bh * 0.12) };
   },
 
   // 받는 선(탑 꼭대기) 논리 y. 탑이 쌓일수록 위로 올라간다.
@@ -246,7 +249,8 @@ export const g06Stack = {
   _waveComplete() {
     const tgt = this.target;
     this.waveGlow = { count: this.stacked.length, t: 0, dur: 0.6 };
-    this.silhouette = Math.max(this.silhouette, this.stacked.length); // 완료 높이 배경 실루엣
+    this.completedHeights.push(this.stacked.length); // 완료 웨이브 누적(배경 실루엣)
+    if (this.completedHeights.length > 12) this.completedHeights.shift();
     this.engine.ui.showComboText(`웨이브 클리어! +${tgt * 50}`, true);
     this.engine.ui.flash('rgba(255,220,140,0.4)', 0.1);
     this.engine.particles.emit(this.towerX, this._catchY(), 'sparkle', THEME.gold, 24);
@@ -421,6 +425,10 @@ export const g06Stack = {
       this.recoverEffect.t += dt;
       if (this.recoverEffect.t >= this.recoverEffect.dur) this.recoverEffect = null;
     }
+    if (this.compressEffect) {
+      this.compressEffect.t += dt;
+      if (this.compressEffect.t >= this.compressEffect.dur) this.compressEffect = null;
+    }
     if (this.waveGlow) {
       this.waveGlow.t += dt;
       if (this.waveGlow.t >= this.waveGlow.dur) this.waveGlow = null;
@@ -450,6 +458,7 @@ export const g06Stack = {
 
     this.stacked.push(b.value);
     this.thud = 0.12;
+    this._checkCompress(); // 같은 값 3개 연속 → 압축(동수누가). 압축 후 길이로 완료 판정.
     const tgt = this.target;
     const waveDone = this.stacked.length >= tgt;
 
@@ -504,6 +513,7 @@ export const g06Stack = {
     const prob = { a: dan, b: q, op: '×', answer: b.value, remainder: null, text: `${dan} × ${q}`, blank: null, level: 1 };
     this.stacked.push(b.value);
     this.thud = 0.12;
+    this._checkCompress(); // 같은 값 3개 연속 → 압축(동수누가). 압축 후 길이로 완료 판정.
     const tgt = this.target;
     const waveDone = this.stacked.length >= tgt;
     let pts = 10;
@@ -540,6 +550,27 @@ export const g06Stack = {
   _recover() {
     this.engine.ui.flash('rgba(120,230,150,0.28)', 0.12);
     this.recoverEffect = { t: 0, dur: 0.6 };
+  },
+
+  // 같은 값이 연속 3개 쌓이면 하나로 압축한다: 7+7+7 = 7×3 = 21 (동수누가 = 곱셈의 출발점).
+  //   압축된 블록은 1칸으로 계산되어 탑이 짧아진다. 연쇄 가능(21이 또 3개면 63으로 재압축).
+  //   ⚠️ 문제 생성에는 개입하지 않는다 — 우연히 같은 몫이 3개 쌓였을 때만 압축한다.
+  _checkCompress() {
+    const e = this.engine;
+    const s = this.stacked;
+    while (s.length >= 3 && s[s.length - 1] === s[s.length - 2] && s[s.length - 2] === s[s.length - 3]) {
+      const v = s[s.length - 1];
+      const merged = v * 3;
+      s.splice(s.length - 3, 3, merged); // 3개 → 1개(v×3)
+      e.scoreManager.addPoints(100); // 압축 보너스(콤보·세션 불변)
+      if (e.fever) e.fever.addPoints(100);
+      e.ui.showComboText(`${v} × 3 = ${merged}!`, false); // 동수누가 → 곱셈 시각화
+      e.particles.emit(this.towerX, this._catchY(), 'explode', THEME.gold, 20);
+      e.particles.emit(this.towerX, this._catchY(), 'sparkle', THEME.correct, 12);
+      e.ui.shake(8, 0.12);
+      e.sound.play('combo');
+      this.compressEffect = { v, merged, t: 0, dur: 0.4 };
+    }
   },
 
   // ── 입력: 카트 좌우 이동만(블록 직접 탭 제거) ──
@@ -583,7 +614,7 @@ export const g06Stack = {
       ctx.fillText(qText, cx, L.zone.problem);
       ctx.fillStyle = THEME.subtext;
       ctx.font = font(L.font(0.028), 'normal');
-      ctx.fillText(`웨이브 ${this.waveIndex + 1} · 목표 ${this.target}칸 · 현재 ${this.stacked.length}칸`, cx, L.zone.problem + L.gu(1.6));
+      ctx.fillText(`${this.waveIndex + 1}번째 탑 · 목표 ${this.target}칸 · 현재 ${this.stacked.length}칸`, cx, L.zone.problem + L.gu(1.6));
       if (this.problem.fromReview) {
         ctx.fillStyle = THEME.gold;
         ctx.font = font(L.font(0.026));
@@ -651,28 +682,50 @@ export const g06Stack = {
       ctx.fillText('휴—', this.towerX, this._catchY() - L.gu(1.5) - prog * L.gu(1));
       ctx.restore();
     }
+    if (this.compressEffect) {
+      const c = this.compressEffect;
+      const prog = c.t / c.dur;
+      const y = this._catchY();
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, 1 - prog);
+      ctx.strokeStyle = THEME.gold; // 확장 링
+      ctx.lineWidth = L.gu(0.15);
+      ctx.beginPath();
+      ctx.arc(this.towerX, y, this.towerW * (0.4 + prog * 0.9), 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = THEME.gold; // 합쳐진 값
+      ctx.font = font(L.font(0.055));
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(String(c.merged), this.towerX, y - L.gu(1) - prog * L.gu(1));
+      ctx.restore();
+    }
     ctx.restore();
 
     this._drawFeverBanner(ctx);
     // 위기 테두리는 ui가 자동으로 그린다.
   },
 
-  // 완료했던 최고 높이를 배경 실루엣으로(오늘 얼마나 높이 쌓았는지)
+  // 지금까지 완료한 웨이브들을 바닥 우측에 누적 실루엣(스카이라인)으로(오늘 얼마나 쌓았는지).
   _renderSilhouette(ctx, floorY) {
-    if (this.silhouette <= 0) return;
-    const { bh, bw, gap } = this._towerGeom();
+    const list = this.completedHeights;
+    if (!list.length) return;
+    const show = list.slice(-10); // 최근 10개만
+    const barW = L.gu(0.5);
+    const gap = L.gu(0.25);
+    const unit = L.gu(0.22); // 높이 1칸당 실루엣 픽셀(작게 축약)
+    const totalW = show.length * barW + (show.length - 1) * gap;
+    let x = L.W - L.safe - totalW + barW / 2;
     ctx.save();
-    ctx.globalAlpha = 0.12;
+    ctx.globalAlpha = 0.14;
     ctx.fillStyle = THEME.text;
-    for (let i = 0; i < this.silhouette; i++) {
-      const y = floorY - (i + 1) * bh + gap / 2;
-      roundRect(ctx, cxSilhouetteX() - bw / 2, y, bw, bh - gap, Math.min(L.gu(0.3), (bh - gap) * 0.2));
+    for (const h of show) {
+      const bh = h * unit;
+      roundRect(ctx, x - barW / 2, floorY - bh, barW, bh, L.gu(0.1));
       ctx.fill();
+      x += barW + gap;
     }
     ctx.restore();
-    function cxSilhouetteX() {
-      return L.W - L.safe - bw / 2; // 오른쪽 구석에 실루엣
-    }
   },
 
   _renderTower(ctx, floorY) {
@@ -791,6 +844,7 @@ export const g06Stack = {
     this.popEffects = [];
     this.missEffect = null;
     this.recoverEffect = null;
+    this.compressEffect = null;
     this.waveGlow = null;
     this.feverBanner = null;
   },
