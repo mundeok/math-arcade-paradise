@@ -178,6 +178,7 @@ export const g06Stack = {
     const e = this.engine;
     const combo = e.scoreManager.combo;
     let mult = combo >= 20 ? 1.4 : combo >= 15 ? 1.3 : combo >= 10 ? 1.2 : combo >= 5 ? 1.1 : 1.0;
+    mult *= e.scoreManager.speedFactor; // 점수/콤보 세션 가산(공통). 안전장치는 아래에서 우선 적용.
     if (this.speedPenalty > 0) mult = Math.max(1.0, mult - 0.1 * this.speedPenalty); // 연속 오답 하향
     if (e.scoreManager.lives <= 1) mult = Math.min(mult, 1.0); // 라이프1 상승 중단
     let sec = BASE_FALL_SEC / mult;

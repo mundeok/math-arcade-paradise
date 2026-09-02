@@ -294,6 +294,7 @@ export const g03Race = {
     const e = this.engine;
     const combo = e.scoreManager.combo;
     let f = 1 + Math.min(0.8, combo * 0.03);
+    f *= e.scoreManager.speedFactor; // 점수/콤보 세션 가산(공통, 시각 속도감만 — 게이트 2.5초 하한 무관)
     if (e.fever && e.fever.active) f *= 1.5; // 피버 속도감 1.5배
     else if (e.fever) f *= e.fever.speedMultiplier; // 종료 램프 반영
     return f;

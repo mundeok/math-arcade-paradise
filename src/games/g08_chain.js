@@ -106,7 +106,8 @@ export const g08Chain = {
   _bubbleSpeed() {
     const e = this.engine;
     let s = L.gu(2) + L.gu(0.06) * e.scoreManager.combo; // 약 80 → …
-    s = Math.min(s, L.gu(5));
+    s *= e.scoreManager.speedFactor; // 점수/콤보 세션 가산(공통)
+    s = Math.min(s, L.gu(5)); // 속도 상한 유지(가산이 넘지 않음)
     if (e.fever) s *= e.fever.speedMultiplier;
     return s * (e.settings.timeScale ? 1 / e.settings.timeScale : 1); // 배율↑=느리게(다른 게임과 방향 통일)
   },

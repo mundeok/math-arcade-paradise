@@ -120,7 +120,8 @@ export const g09Balloon = {
   _riseSpeed() {
     const combo = this.engine.scoreManager.combo;
     let mult = Math.pow(1.15, Math.floor(combo / 5));
-    if (mult > SPEED_CAP) mult = SPEED_CAP; // 상한 클램프(필수)
+    mult *= this.engine.scoreManager.speedFactor; // 점수/콤보 세션 가산(공통)
+    if (mult > SPEED_CAP) mult = SPEED_CAP; // 상한 유지(가산이 넘지 않음)
     let sec = BASE_RISE_SEC / mult;
     sec *= this.engine.settings.timeScale || 1;
     const dist = L.zone.floor - L.zone.playTop; // 부양 이동 거리

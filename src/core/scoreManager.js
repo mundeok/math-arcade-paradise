@@ -91,6 +91,17 @@ export class ScoreManager {
     return this.correctCount / this.totalCount;
   }
 
+  // 공통 속도 배수 (전 게임 공통, SPEC §3.4). 속도 개념이 있는 게임이 자기 속도 계산에 곱해 쓴다.
+  //   = 1 + 콤보 즉각항(최대 +0.3) + 점수 세션항(점수/3000 × 0.1). 상한 1.6배(하드 클램프).
+  //   콤보는 오답에 리셋되는 즉각 보상, 점수는 깎이지 않아 세션이 길수록 자연히 빨라지는 상승감.
+  //   ⚠️ 이 값은 '가산'일 뿐이며, 게임별 안전장치(라이프1 상한·최소 통과시간·속도 상한 등)를 넘어서면
+  //      안 된다. 각 게임은 이 배수를 곱한 뒤 자신의 안전장치 클램프를 뒤에 적용해야 한다.
+  get speedFactor() {
+    const comboTerm = Math.min(0.3, this.combo * 0.02); // 즉각 보상(콤보 15에서 +0.3 포화)
+    const scoreTerm = (this.score / 3000) * 0.1; // 세션 상승감(점수 누적)
+    return Math.min(1.6, 1 + comboTerm + scoreTerm);
+  }
+
   // 별 등급 (SPEC 3.5). 정답률 0~1 입력 기준.
   getStars() {
     const acc = this.accuracy;

@@ -152,6 +152,7 @@ export const g07Shoot = {
     const e = this.engine;
     const combo = e.scoreManager.combo;
     let step = combo >= 24 ? 1.5 : combo >= 16 ? 1.35 : combo >= 10 ? 1.2 : combo >= 5 ? 1.1 : 1.0;
+    step *= e.scoreManager.speedFactor; // 점수/콤보 세션 가산(공통). 안전장치는 아래에서 우선 적용.
     if (e.scoreManager.lives <= 1) step = Math.min(step, 1.0); // 라이프1 상승 중단
     if (e.fever && e.fever.graceActive) step = Math.min(step, 1.0); // 피버 종료 직후 grace
     step *= e.fever ? e.fever.speedMultiplier : 1;
