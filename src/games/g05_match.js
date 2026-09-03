@@ -94,6 +94,8 @@ export const g05Match = {
     this.wasFever = false;
     this.feverBanner = null;
     this.time = 0;
+    this.rhythmMode = false; // 피버 중 'N단 순서 잇기' 리듬 웨이브(easy 유지, multi 아님)
+    this.rhythmDan = 0;
     this._startWave();
   },
 
@@ -165,6 +167,34 @@ export const g05Match = {
     this.timeLeft = this.timeLimit;
   },
 
+  // ── 피버 리듬 웨이브: 좌 dan×1..dan×K, 우 답을 순서대로 정렬(생각 없이 이어가는 리듬) ──
+  _enterRhythm() {
+    this.rhythmMode = true;
+    this._startRhythmWave();
+  },
+  _exitRhythm() {
+    this.rhythmMode = false;
+    this._startWave(); // 일반 매칭 웨이브 복귀
+  },
+  _startRhythmWave() {
+    const dan = 2 + Math.floor(Math.random() * 4); // 2~5단 무작위
+    const K = 5; // 카드 수(리듬 길이)
+    // 좌: dan×1, dan×2 … 순서대로 / 우: 답(dan, 2dan, …)도 같은 순서 → 위에서부터 착착 잇는다.
+    this.left = [];
+    this.right = [];
+    for (let k = 1; k <= K; k++) {
+      const prob = { a: dan, b: k, op: '×', answer: dan * k, remainder: null, text: `${dan} × ${k}`, blank: null, level: 1, fromReview: false };
+      this.left.push({ problem: prob, value: dan * k, matched: false, rect: null });
+      this.right.push({ value: dan * k, isTrap: false, matched: false, rect: null });
+    }
+    this._layout();
+    this.selected = null;
+    this.nearMissUsed = false;
+    this.timeLimit = 0; // 리듬 웨이브엔 제한시간 없음
+    this.timeLeft = 0;
+    this.rhythmDan = dan;
+  },
+
   // 두 열을 세로로 분배 배치(웨이브 동안 위치 고정 — 매칭 대상이 흔들리지 않게).
   _layout() {
     const topY = L.y(0.27);
@@ -201,9 +231,11 @@ export const g05Match = {
     if (active && !this.wasFever) {
       this.engine.ui.flash('rgba(255,210,120,0.5)', FLASH_DUR);
       this.engine.ui.showComboText('🔥 FEVER!', true);
+      this._enterRhythm(); // N단 순서 잇기(생각 없이 좌우로 이어가는 리듬)
     } else if (!active && this.wasFever) {
       this.feverBanner = { points: fev ? fev.pointsEarned : 0, t: 0, dur: 1.4 };
       this.engine.ui.flash('rgba(120,200,255,0.4)', FLASH_DUR);
+      if (this.rhythmMode) this._exitRhythm(); // 일반 매칭 복귀
     }
     this.wasFever = active;
 
@@ -325,6 +357,11 @@ export const g05Match = {
     e.ui.flash('rgba(255,220,140,0.35)', 0.1);
     e.ui.showComboText(`정리 완료! +${bonus}`, false);
 
+    // 리듬 중엔 waveIndex를 올리지 않고 새 리듬 웨이브(새 단)를 낸다.
+    if (this.rhythmMode) {
+      this._startRhythmWave();
+      return;
+    }
     this.waveIndex += 1;
     this._startWave();
   },
@@ -357,15 +394,23 @@ export const g05Match = {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
-    // 지시문 + 웨이브/타이머
-    const wave = this._wave();
-    ctx.fillStyle = THEME.text;
-    ctx.font = font(L.font(0.04));
-    ctx.fillText('짝을 지어 정리하자!', cx, L.zone.problem - L.gu(0.6));
-    ctx.font = font(L.font(0.028), 'normal');
-    ctx.fillStyle = THEME.subtext;
-    ctx.fillText(`웨이브 ${this.waveIndex + 1}`, cx, L.zone.problem + L.gu(0.9));
-    if (this.timeLimit > 0) this._drawTimer(ctx);
+    // 지시문 + 웨이브/타이머 (피버 리듬 중엔 "N단 리듬!")
+    if (this.rhythmMode && this.rhythmDan) {
+      ctx.fillStyle = THEME.gold;
+      ctx.font = font(L.font(0.045));
+      ctx.fillText(`${this.rhythmDan}단 리듬!`, cx, L.zone.problem - L.gu(0.6));
+      ctx.font = font(L.font(0.028), 'normal');
+      ctx.fillStyle = THEME.text;
+      ctx.fillText('순서대로 착착 이어봐!', cx, L.zone.problem + L.gu(0.9));
+    } else {
+      ctx.fillStyle = THEME.text;
+      ctx.font = font(L.font(0.04));
+      ctx.fillText('짝을 지어 정리하자!', cx, L.zone.problem - L.gu(0.6));
+      ctx.font = font(L.font(0.028), 'normal');
+      ctx.fillStyle = THEME.subtext;
+      ctx.fillText(`웨이브 ${this.waveIndex + 1}`, cx, L.zone.problem + L.gu(0.9));
+      if (this.timeLimit > 0) this._drawTimer(ctx);
+    }
 
     // 무지개 연결선(정답 매칭 — 흐르며 사라짐)
     for (const link of this.links) this._drawLink(ctx, link);

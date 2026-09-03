@@ -50,7 +50,7 @@ export const g07Shoot = {
   blankRatio: 0, // 반사신경형은 빈칸 미출제
   opMode: 'multiply', // 곱셈만 출제(교사 설정이 특정 연산이면 교사 우선)
   comboMilestones: { 10: '명중왕!', 20: '무적포격!' }, // 게임 고유 문구(core 기본 대체)
-  fever: { type: 'easy' }, // 재미 표준 피버 opt-in → engine.fever (§7.6). easy=피버 중 쉬운 문제형
+  fever: { type: 'multi' }, // 재미 표준 피버 opt-in → engine.fever (§7.6). multi=피버 중 "N단!" 동시 3개 격추
 
   // ── 크기(L 기반 getter) ──
   get enemyR() {
@@ -127,6 +127,7 @@ export const g07Shoot = {
     this.curSpeed = 0;
     this.nearMissUsed = false;
     this.wasFever = false;
+    this.multiMode = false; // 피버(multi) 중 'N단 동시 3개 격추' 모드
 
     this._startRound();
   },
@@ -206,9 +207,11 @@ export const g07Shoot = {
     if (active && !this.wasFever) {
       this.engine.ui.flash('rgba(255,210,120,0.5)', FLASH_DUR);
       this.engine.ui.showComboText('🔥 FEVER!', true);
+      if (fev.type === 'multi') this._enterMulti(); // 동시 3개 배수 격추 모드로
     } else if (!active && this.wasFever) {
       this.feverBanner = { points: fev ? fev.pointsEarned : 0, t: 0, dur: 1.4 };
       this.engine.ui.flash('rgba(120,200,255,0.4)', FLASH_DUR);
+      if (this.multiMode) this._exitMulti(); // 일반 배치 복귀
     }
     this.wasFever = active;
 
@@ -234,15 +237,21 @@ export const g07Shoot = {
     this._resolveHits();
     this.bullets = this.bullets.filter((b) => b.y > this.topY - L.gu(3));
 
-    // 정답 로봇이 바닥 도달 → 라이프 -1 + 정답표시(놓쳤으니 짚어줌)
-    const correct = this.enemies.find((en) => en.correct && !en.judged);
-    if (correct && correct.y + this.enemyR >= this.floorY) {
-      correct.judged = true;
-      this.engine.answerWrong(this.problem, null, { loseLife: true, onResume: () => this._startRound() });
-      return;
+    if (this.multiMode) {
+      // 피버: 격추됐거나 바닥을 지난 로봇 제거(놓쳐도 무해). 3개 다 사라지면 다음 3개 동시 하강.
+      this.enemies = this.enemies.filter((en) => !en.judged && en.y - this.enemyR <= this.floorY);
+      if (this.enemies.length === 0) this._startRoundMulti();
+    } else {
+      // 정답 로봇이 바닥 도달 → 라이프 -1 + 정답표시(놓쳤으니 짚어줌)
+      const correct = this.enemies.find((en) => en.correct && !en.judged);
+      if (correct && correct.y + this.enemyR >= this.floorY) {
+        correct.judged = true;
+        this.engine.answerWrong(this.problem, null, { loseLife: true, onResume: () => this._startRound() });
+        return;
+      }
+      // 오답 로봇이 바닥 도달 → 무해(제거만)
+      this.enemies = this.enemies.filter((en) => !(!en.correct && en.y - this.enemyR > this.floorY));
     }
-    // 오답 로봇이 바닥 도달 → 무해(제거만)
-    this.enemies = this.enemies.filter((en) => !(!en.correct && en.y - this.enemyR > this.floorY));
 
     // 이펙트 타이머
     for (let i = this.puffs.length - 1; i >= 0; i--) {
@@ -289,9 +298,57 @@ export const g07Shoot = {
       if (!hit) continue;
       this.bullets.splice(bi, 1);
       hit.judged = true;
-      if (hit.correct) this._judgeCorrect(hit);
+      if (this.multiMode) this._judgeShootMulti(hit); // 배수=정답 / 함정=무해(라운드 리셋 없음)
+      else if (hit.correct) this._judgeCorrect(hit);
       else this._judgeWrong(hit);
       break; // 한 프레임에 한 판정(정답이면 라운드 리셋됨)
+    }
+  },
+
+  // ── 피버 multi: "N단!" 동시 3개 격추 ──────────────────────
+  _enterMulti() {
+    this.multiMode = true;
+    this.bullets = [];
+    this._startRoundMulti();
+  },
+  _exitMulti() {
+    this.multiMode = false;
+    this.enemies = [];
+    this.bullets = [];
+    this._startRound(); // 일반 배치 복귀
+  },
+  // 3개를 한 줄로(같은 y) 동시에 하강. 값은 fillValues(80% 배수 + 20% 함정).
+  //   ⚠️ correct 플래그를 세우지 않는다 → _visR 확대(정답 노출) 방지. 판정은 isMultiple로 한다.
+  _startRoundMulti() {
+    const fv = this.engine.fever;
+    const items = fv.fillValues(3);
+    const minX = this._minX();
+    const maxX = this._maxX();
+    const laneW = (maxX - minX) / 3;
+    const y = this.topY - this.enemyR;
+    this.enemies = items.map((it, i) => ({ value: it.value, correct: false, isMultiple: it.isMultiple, x: minX + laneW * (i + 0.5), y, judged: false, stopT: 0 }));
+    this.fireCooldown = 0;
+  },
+  _judgeShootMulti(en) {
+    const e = this.engine;
+    const fv = e.fever;
+    const dan = fv.dan;
+    if (fv.isMultiple(en.value)) {
+      const q = Math.round(en.value / dan);
+      const prob = { a: dan, b: q, op: '×', answer: en.value, remainder: null, text: `${dan} × ${q}`, blank: null, level: 1 };
+      e.answerCorrect(prob, en.value, 50 + e.scoreManager.combo * 10); // 점수배수·게이지·정답음 자동(무적)
+      this.hitStreak += 1;
+      e.particles.emit(en.x, en.y, 'sparkle', THEME.gold, 16);
+      e.particles.emit(en.x, en.y, 'explode', THEME.accent, 16);
+      this.puffs.push({ x: en.x, y: en.y, t: 0, dur: PUFF_DUR, r: this.enemyR });
+      this.floatTexts.push({ x: en.x, y: en.y, text: `+${Math.round((50 + e.scoreManager.combo * 10) * fv.scoreMultiplier)}`, color: THEME.gold, size: L.font(0.038), t: 0, dur: FLOAT_DUR });
+      this.hitStop = HITSTOP;
+      e.sound.play('pop');
+    } else {
+      const prob = { a: en.value, b: dan, op: '÷', answer: Math.floor(en.value / dan), remainder: en.value % dan, text: `${en.value} ÷ ${dan}`, blank: null, level: 1 };
+      e.answerWrong(prob, en.value, { affectLevel: false, freeze: false }); // 무해
+      this.hitStreak = 0;
+      this.puffs.push({ x: en.x, y: en.y, t: 0, dur: PUFF_DUR, r: this.enemyR });
     }
   },
 
@@ -366,13 +423,22 @@ export const g07Shoot = {
     const cx = L.W / 2;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillStyle = THEME.text;
-    ctx.font = font(L.font(0.07));
-    ctx.fillText(`${this.problem.text} = ?`, cx, L.zone.problem);
-    if (this.problem.fromReview) {
-      ctx.font = font(L.font(0.026));
+    if (this.multiMode && this.engine.fever && this.engine.fever.dan) {
       ctx.fillStyle = THEME.gold;
-      ctx.fillText('🔁 다시 도전!', cx, L.zone.problem + L.gu(1.7));
+      ctx.font = font(L.font(0.08));
+      ctx.fillText(`${this.engine.fever.dan}단!`, cx, L.zone.problem);
+      ctx.fillStyle = THEME.text;
+      ctx.font = font(L.font(0.026), 'normal');
+      ctx.fillText('배수 로봇을 격추!', cx, L.zone.problem + L.gu(1.7));
+    } else {
+      ctx.fillStyle = THEME.text;
+      ctx.font = font(L.font(0.07));
+      ctx.fillText(`${this.problem.text} = ?`, cx, L.zone.problem);
+      if (this.problem.fromReview) {
+        ctx.font = font(L.font(0.026));
+        ctx.fillStyle = THEME.gold;
+        ctx.fillText('🔁 다시 도전!', cx, L.zone.problem + L.gu(1.7));
+      }
     }
 
     // 바닥 안내선(로봇이 지나가면 놓침). 중립적 점선.

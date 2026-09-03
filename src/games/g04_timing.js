@@ -19,6 +19,7 @@ const MAX_ROT = 3; // 3회전 안에 못 맞히면 시간초과(무한 대기 �
 // 판정 허용 각도(도). 피버 중 hitScale로 넓어진다.
 const TOL = { perfect: 5, good: 15, ok: 30 };
 const SCORE = { perfect: 100, good: 60, ok: 30 };
+const MULTI_RING = 8; // 피버(multi) 중 원 둘레 숫자 개수
 
 export const g04Timing = {
   id: 'g04_timing',
@@ -28,7 +29,7 @@ export const g04Timing = {
   maxLevel: 4,
   blankRatio: 0.25,
   opMode: 'multiply',
-  fever: { type: 'easy' }, // easy=피버 중 쉬운 문제형 (§2.6/§7.6)
+  fever: { type: 'multi' }, // multi=피버 중 바늘 판정 끄고 "N단!" 배수 찾기 (§2.6/§7.6)
   // 게임 고유 콤보 문구(정밀함 테마). PERFECT/GOOD/OK는 '판정' 문구라 따로 그린다.
   comboMilestones: { 5: 'TICK!', 15: 'PRECISE!', 25: 'CLOCKWORK!' },
 
@@ -103,6 +104,7 @@ export const g04Timing = {
     this.time = 0;
     this.wasFever = false;
     this.feverBanner = null;
+    this.multiMode = false; // 피버(multi) 중 '바늘 무관 배수 찾기' 모드
     this._load();
   },
 
@@ -148,9 +150,11 @@ export const g04Timing = {
     if (active && !this.wasFever) {
       this.engine.ui.flash('rgba(255,210,120,0.5)', 0.09);
       this.engine.ui.showComboText('🔥 FEVER!', true);
+      if (fev.type === 'multi') this._enterMulti(); // 바늘 판정 끄고 배수 찾기로
     } else if (!active && this.wasFever) {
       this.feverBanner = { points: fev ? fev.pointsEarned : 0, t: 0, dur: 1.4 };
       this.engine.ui.flash('rgba(120,200,255,0.4)', 0.09);
+      if (this.multiMode) this._exitMulti(); // 타이밍 판정 복귀
     }
     this.wasFever = active;
     if (this.feverBanner) {
@@ -158,15 +162,18 @@ export const g04Timing = {
       if (this.feverBanner.t >= this.feverBanner.dur) this.feverBanner = null;
     }
 
-    // 바늘 회전
+    // 바늘 회전(피버 multi 중엔 판정에 관여 안 하고 시각 연출로만 돈다)
     const dθ = this._omega() * dt;
     this.needle = (this.needle + dθ) % (Math.PI * 2);
-    this.totalRot += dθ;
-
-    // 3회전 초과 → 시간초과(라이프 -1 + 정답표시)
-    if (this.totalRot >= MAX_ROT * Math.PI * 2) {
-      this.engine.timeUp(this.problem, { loseLife: true, onResume: () => this._load() });
-      return;
+    if (!this.multiMode) {
+      this.totalRot += dθ;
+      // 3회전 초과 → 시간초과(라이프 -1 + 정답표시). multi에는 시간초과 개념 없음.
+      if (this.totalRot >= MAX_ROT * Math.PI * 2) {
+        this.engine.timeUp(this.problem, { loseLife: true, onResume: () => this._load() });
+        return;
+      }
+    } else {
+      for (const nm of this.numbers) if (nm.popT > 0) nm.popT = Math.max(0, nm.popT - dt);
     }
 
     if (this.zoomT > 0) this.zoomT = Math.max(0, this.zoomT - dt);
@@ -191,6 +198,22 @@ export const g04Timing = {
     if (phase !== 'start') return; // 정밀형: 누르는 순간 판정
     if (!this.numbers.length) return;
     const e = this.engine;
+
+    // 피버 multi: 바늘 무관, 탭 지점의 숫자를 배수 여부로 판정(연타). 함정 무해.
+    if (this.multiMode) {
+      let near = null;
+      let best = Infinity;
+      for (const nm of this.numbers) {
+        const p = this._numPos(nm);
+        const d = Math.hypot(x - p.x, y - p.y);
+        if (d <= this.numR * 1.5 && d < best) {
+          best = d;
+          near = nm;
+        }
+      }
+      if (near) this._judgeNum(near);
+      return;
+    }
 
     // 바늘에 가장 가까운 숫자 찾기
     let near = null;
@@ -244,6 +267,51 @@ export const g04Timing = {
     return { x: this.cx + this.ringR * Math.sin(nm.angle), y: this.cy - this.ringR * Math.cos(nm.angle) };
   },
 
+  // ── 피버 multi: 바늘 무관 배수 찾기 ────────────────────────
+  _enterMulti() {
+    this.multiMode = true;
+    this._buildRingMulti();
+  },
+  _exitMulti() {
+    this.multiMode = false;
+    this._load(); // 타이밍 판정 문제로 복귀(원 둘레 재구성)
+  },
+  _buildRingMulti() {
+    const fv = this.engine.fever;
+    const items = fv.fillValues(MULTI_RING); // 80% 배수 + 20% 함정
+    this.numbers = items.map((it, i) => ({ value: it.value, isMultiple: it.isMultiple, angle: (i / MULTI_RING) * Math.PI * 2, popT: 0 }));
+    this.totalRot = 0;
+  },
+  _refillNum(nm) {
+    const fv = this.engine.fever;
+    if (!fv || !fv.active || fv.type !== 'multi') return;
+    const ratio = (fv.cfg && fv.cfg.multiMultipleRatio) || 0.8;
+    const v = Math.random() < ratio ? fv.randomMultiple() : fv.randomTrap();
+    nm.value = v;
+    nm.isMultiple = fv.isMultiple(v);
+    nm.popT = 0.15;
+  },
+  _judgeNum(nm) {
+    const e = this.engine;
+    const fv = e.fever;
+    const dan = fv.dan;
+    const pos = this._numPos(nm);
+    if (fv.isMultiple(nm.value)) {
+      const q = Math.round(nm.value / dan);
+      const prob = { a: dan, b: q, op: '×', answer: nm.value, remainder: null, text: `${dan} × ${q}`, blank: null, level: 1 };
+      e.answerCorrect(prob, nm.value, 60 + e.scoreManager.combo * 5); // 점수배수·게이지·정답음 자동(무적)
+      this.floats.push({ x: pos.x, y: pos.y, text: 'NICE', color: THEME.correct, size: L.font(0.038), t: 0, dur: 0.5 });
+      e.particles.emit(pos.x, pos.y, 'sparkle', THEME.gold, 12);
+      e.particles.emit(pos.x, pos.y, 'pop', THEME.correct, 8);
+      e.sound.play('pop');
+    } else {
+      const prob = { a: nm.value, b: dan, op: '÷', answer: Math.floor(nm.value / dan), remainder: nm.value % dan, text: `${nm.value} ÷ ${dan}`, blank: null, level: 1 };
+      e.answerWrong(prob, nm.value, { affectLevel: false, freeze: false }); // 무해
+      e.particles.emit(pos.x, pos.y, 'pop', THEME.wrong, 8);
+    }
+    this._refillNum(nm);
+  },
+
   render(ctx) {
     const cx = this.cx;
     const cy = this.cy;
@@ -255,15 +323,24 @@ export const g04Timing = {
       this.engine.fever.renderGauge(ctx, { x: L.safe, y: L.zone.gauge, w: L.W - L.safe * 2, h: L.gu(0.5) });
     }
 
-    // 문제(≥80px)
-    ctx.fillStyle = THEME.text;
-    ctx.font = font(L.font(0.07));
-    const qText = this.problem.blank ? this.problem.text : `${this.problem.text} = ?`;
-    ctx.fillText(qText, cx, L.zone.problem);
-    if (this.problem.fromReview) {
-      ctx.font = font(L.font(0.026));
+    // 문제(≥80px) — 피버 multi 중엔 "N단!"
+    if (this.multiMode && this.engine.fever && this.engine.fever.dan) {
       ctx.fillStyle = THEME.gold;
-      ctx.fillText('🔁 다시 도전!', cx, L.zone.problem + L.gu(1.6));
+      ctx.font = font(L.font(0.08));
+      ctx.fillText(`${this.engine.fever.dan}단!`, cx, L.zone.problem);
+      ctx.fillStyle = THEME.text;
+      ctx.font = font(L.font(0.026), 'normal');
+      ctx.fillText('배수를 아무거나 눌러! (바늘 무관)', cx, L.zone.problem + L.gu(1.6));
+    } else {
+      ctx.fillStyle = THEME.text;
+      ctx.font = font(L.font(0.07));
+      const qText = this.problem.blank ? this.problem.text : `${this.problem.text} = ?`;
+      ctx.fillText(qText, cx, L.zone.problem);
+      if (this.problem.fromReview) {
+        ctx.font = font(L.font(0.026));
+        ctx.fillStyle = THEME.gold;
+        ctx.fillText('🔁 다시 도전!', cx, L.zone.problem + L.gu(1.6));
+      }
     }
 
     // 미세 확대(원 전체)
@@ -310,15 +387,24 @@ export const g04Timing = {
     ctx.fillStyle = THEME.gold;
     ctx.fill();
 
-    // 중앙: 남은 회전 수(무한 대기 방지 안내)
-    const remain = Math.max(0, MAX_ROT - Math.floor(this.totalRot / (Math.PI * 2)));
-    ctx.fillStyle = THEME.subtext;
-    ctx.font = font(L.font(0.03), 'normal');
-    ctx.fillText(`${remain}바퀴`, cx, cy + L.gu(1.6));
+    // 중앙: 남은 회전 수(무한 대기 방지 안내). 피버 multi 중엔 시간초과가 없어 숨긴다.
+    if (!this.multiMode) {
+      const remain = Math.max(0, MAX_ROT - Math.floor(this.totalRot / (Math.PI * 2)));
+      ctx.fillStyle = THEME.subtext;
+      ctx.font = font(L.font(0.03), 'normal');
+      ctx.fillText(`${remain}바퀴`, cx, cy + L.gu(1.6));
+    }
 
-    // 숫자 원 (정답/오답 색 동일 — 정답 노출 금지)
+    // 숫자 원 (정답/오답·배수/함정 색 동일 — 정답 노출 금지)
     for (const nm of this.numbers) {
       const pos = this._numPos(nm);
+      const s = nm.popT ? 1 + 0.18 * (nm.popT / 0.15) : 1; // 새 숫자 팝(multi)
+      ctx.save();
+      if (s !== 1) {
+        ctx.translate(pos.x, pos.y);
+        ctx.scale(s, s);
+        ctx.translate(-pos.x, -pos.y);
+      }
       ctx.beginPath();
       ctx.arc(pos.x, pos.y, this.numR, 0, Math.PI * 2);
       ctx.fillStyle = THEME.accent;
@@ -329,6 +415,7 @@ export const g04Timing = {
       ctx.fillStyle = '#fff';
       ctx.font = font(L.font(0.042));
       ctx.fillText(String(nm.value), pos.x, pos.y);
+      ctx.restore();
     }
     ctx.restore();
 

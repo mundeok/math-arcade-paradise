@@ -17,6 +17,9 @@ import { THEME, font, roundRect, hit } from '../core/ui.js';
 const CORRECT_ANIM = 0.15; // 정답 연출(흐름 멈추지 않음, ≤0.15초)
 const WRONG_ANIM = 0.45; // 오답 버튼 피드백 후 core 정답표시 오버레이
 
+const GRID_COLS = 3; // 피버(multi) 격자 열
+const GRID_ROWS = 4; // 피버(multi) 격자 행 → 12개 버튼
+
 export const g01Combo = {
   id: 'g01_combo',
   name: '콤보 챌린지',
@@ -25,7 +28,7 @@ export const g01Combo = {
   maxLevel: 4, // 출제 상한 Lv4 (SPEC 2.1 판단형)
   blankRatio: 0.25, // 판단형 빈칸 비율
   opMode: 'multiply', // 곱셈만 출제
-  fever: { type: 'easy' }, // 재미 표준 피버 opt-in → engine.fever (§7.6). easy=피버 중 쉬운 문제형
+  fever: { type: 'multi' }, // 재미 표준 피버 opt-in → engine.fever (§7.6). multi=피버 중 "N단!" 배수 격자
 
   tutorial: {
     text: '문제의 답을 찾아 눌러봐! 빠를수록 점수가 올라가!',
@@ -99,6 +102,8 @@ export const g01Combo = {
 
     this.wasFever = false;
     this.feverBanner = null;
+    this.multiMode = false; // 피버(multi) 중 'N단 배수 격자' 모드
+    this.gridBtns = []; // [{value, isMultiple, x, y, w, h, popT}]
 
     this._loadProblem();
   },
@@ -146,14 +151,22 @@ export const g01Combo = {
     if (active && !this.wasFever) {
       e.ui.flash('rgba(255,210,120,0.5)', 0.09);
       e.ui.showComboText('🔥 FEVER!', true);
+      if (fev.type === 'multi') this._enterGrid(); // 4지선다 → N단 배수 격자
     } else if (!active && this.wasFever) {
       this.feverBanner = { points: fev ? fev.pointsEarned : 0, t: 0, dur: 1.4 };
       e.ui.flash('rgba(120,200,255,0.4)', 0.09);
+      if (this.multiMode) this._exitGrid(); // 4지선다로 복귀
     }
     this.wasFever = active;
     if (this.feverBanner) {
       this.feverBanner.t += dt;
       if (this.feverBanner.t >= this.feverBanner.dur) this.feverBanner = null;
+    }
+
+    // 피버 격자 모드: 제한시간·phase 없이 계속 누른다. 버튼 팝 애니메이션만 갱신.
+    if (this.multiMode) {
+      for (const b of this.gridBtns) if (b.popT > 0) b.popT = Math.max(0, b.popT - dt);
+      return;
     }
 
     if (this.phase === 'correctAnim') {
@@ -189,6 +202,20 @@ export const g01Combo = {
     ctx.textBaseline = 'middle';
 
     this._drawFeverBg(ctx);
+
+    // 피버 격자 모드: "N단!" + 배수 격자 (4지선다·제한시간 게이지 대신)
+    if (this.multiMode && this.engine.fever && this.engine.fever.dan) {
+      if (this.engine.fever) this.engine.fever.renderGauge(ctx, { x: L.safe, y: L.zone.gauge, w: L.W - L.safe * 2, h: L.gu(0.5) });
+      ctx.fillStyle = THEME.gold;
+      ctx.font = font(L.font(0.09));
+      ctx.fillText(`${this.engine.fever.dan}단!`, cx, L.gu(9));
+      ctx.fillStyle = THEME.text;
+      ctx.font = font(L.font(0.03), 'normal');
+      ctx.fillText('배수를 모두 눌러!', cx, L.gu(11.2));
+      for (const b of this.gridBtns) this._drawGridBtn(ctx, b);
+      this._drawFeverBanner(ctx);
+      return;
+    }
 
     // 제한시간 게이지
     const gx = L.safe;
@@ -291,6 +318,17 @@ export const g01Combo = {
   },
 
   onTouch(x, y, phase) {
+    // 피버 격자 모드: 배수를 누르면 정답(연타), 함정 무해. 누르는 즉시 판정.
+    if (this.multiMode) {
+      if (phase !== 'start') return;
+      for (const b of this.gridBtns) {
+        if (hit(b, x, y)) {
+          this._judgeGrid(b);
+          return;
+        }
+      }
+      return;
+    }
     if (this.phase !== 'play') return;
 
     if (phase === 'start') {
@@ -349,6 +387,10 @@ export const g01Combo = {
   },
 
   onHover(x, y) {
+    if (this.multiMode) {
+      for (const b of this.gridBtns) if (hit(b, x, y)) return true;
+      return false;
+    }
     if (this.phase !== 'play') {
       this.hoverPt = null;
       return false;
@@ -362,9 +404,100 @@ export const g01Combo = {
   },
 
   onKey(e) {
-    if (this.phase !== 'play') return;
+    if (this.multiMode || this.phase !== 'play') return;
     const idx = { 1: 0, 2: 1, 3: 2, 4: 3 }[e.key];
     if (idx != null && this.choices[idx]) this._commit(this.choices[idx]);
+  },
+
+  // ── 피버 multi 격자: "N단!" 배수 격자 ──────────────────────
+  _enterGrid() {
+    this.multiMode = true;
+    this.phase = 'play';
+    this._buildGrid();
+  },
+  _exitGrid() {
+    this.multiMode = false;
+    this.gridBtns = [];
+    this._loadProblem(); // 4지선다 복귀(제한시간 재설정)
+  },
+  _gridLayout() {
+    const top = L.y(0.36);
+    const bottom = L.H - L.safe;
+    const areaW = L.W - L.safe * 2;
+    const areaH = bottom - top;
+    const gap = L.gu(0.5);
+    const bw = (areaW - (GRID_COLS - 1) * gap) / GRID_COLS;
+    const bh = (areaH - (GRID_ROWS - 1) * gap) / GRID_ROWS;
+    const rects = [];
+    for (let r = 0; r < GRID_ROWS; r++) {
+      for (let c = 0; c < GRID_COLS; c++) {
+        rects.push({ x: L.safe + c * (bw + gap), y: top + r * (bh + gap), w: bw, h: bh });
+      }
+    }
+    return rects;
+  },
+  _buildGrid() {
+    // 격자는 버튼별로 개별 생성(중복 허용). fillValues는 값 중복을 피해 12칸을 못 채울 수 있어(단 2는
+    //   고유 배수 9개뿐) 여기선 _refillGridBtn으로 각 칸을 채운다. 결과적으로 ≈80% 배수/20% 함정.
+    const rects = this._gridLayout();
+    this.gridBtns = rects.map((rc) => {
+      const b = { ...rc, value: 0, isMultiple: false, popT: 0 };
+      this._refillGridBtn(b);
+      return b;
+    });
+  },
+  _refillGridBtn(btn) {
+    const fv = this.engine.fever;
+    if (!fv || !fv.active || fv.type !== 'multi') return;
+    const ratio = (fv.cfg && fv.cfg.multiMultipleRatio) || 0.8;
+    const v = Math.random() < ratio ? fv.randomMultiple() : fv.randomTrap();
+    btn.value = v;
+    btn.isMultiple = fv.isMultiple(v);
+    btn.popT = 0.15; // 새 숫자 팝
+  },
+  _judgeGrid(btn) {
+    const e = this.engine;
+    const fv = e.fever;
+    const dan = fv.dan;
+    const cx = btn.x + btn.w / 2;
+    const cy = btn.y + btn.h / 2;
+    if (fv.isMultiple(btn.value)) {
+      // 배수 = 정답. dan×몫 곱셈 사실로 기록(콤보 +1·단별 정답률 반영).
+      const q = Math.round(btn.value / dan);
+      const prob = { a: dan, b: q, op: '×', answer: btn.value, remainder: null, text: `${dan} × ${q}`, blank: null, level: 1 };
+      const pts = 100 + e.scoreManager.combo * 10;
+      e.answerCorrect(prob, btn.value, pts); // 점수배수·게이지·정답음·연출 자동(무적)
+      e.particles.emit(cx, cy, 'sparkle', THEME.correct, 14);
+      e.particles.emit(cx, cy, 'pop', THEME.gold, 8);
+      e.sound.play('pop');
+    } else {
+      // 함정 = 무해(피버 무적). 세션만 기록, 복습 큐 미등록.
+      const prob = { a: btn.value, b: dan, op: '÷', answer: Math.floor(btn.value / dan), remainder: btn.value % dan, text: `${btn.value} ÷ ${dan}`, blank: null, level: 1 };
+      e.answerWrong(prob, btn.value, { affectLevel: false, freeze: false });
+      e.particles.emit(cx, cy, 'pop', THEME.wrong, 8);
+    }
+    this._refillGridBtn(btn); // 누른 자리에 새 숫자
+  },
+  _drawGridBtn(ctx, b) {
+    const s = b.popT > 0 ? 1 + 0.12 * (b.popT / 0.15) : 1;
+    const cx = b.x + b.w / 2;
+    const cy = b.y + b.h / 2;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.scale(s, s);
+    ctx.translate(-cx, -cy);
+    roundRect(ctx, b.x, b.y, b.w, b.h, L.gu(0.5));
+    ctx.fillStyle = THEME.accent; // ⚠️ 배수·함정 동일 색(구분 금지 — 배수 판별이 재미의 핵심)
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+    ctx.lineWidth = L.gu(0.1);
+    ctx.stroke();
+    ctx.fillStyle = '#fff';
+    ctx.font = font(L.font(0.06));
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(String(b.value), cx, cy);
+    ctx.restore();
   },
 
   _feverIntensity() {
@@ -413,6 +546,7 @@ export const g01Combo = {
     this.mark = null;
     this.pendingWrong = null;
     this.feverBanner = null;
+    this.gridBtns = [];
   },
 };
 
