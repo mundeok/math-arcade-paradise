@@ -104,6 +104,7 @@ export const g01Combo = {
     this.feverBanner = null;
     this.multiMode = false; // 피버(multi) 중 'N단 배수 격자' 모드
     this.gridBtns = []; // [{value, isMultiple, x, y, w, h, popT}]
+    this.floats = []; // 획득 점수 부양 텍스트 [{x,y,text,t,dur}] — 문제 영역과 겹치지 않게 버튼 위에서
 
     this._loadProblem();
   },
@@ -161,6 +162,10 @@ export const g01Combo = {
     if (this.feverBanner) {
       this.feverBanner.t += dt;
       if (this.feverBanner.t >= this.feverBanner.dur) this.feverBanner = null;
+    }
+    for (let i = this.floats.length - 1; i >= 0; i--) {
+      this.floats[i].t += dt;
+      if (this.floats[i].t >= this.floats[i].dur) this.floats.splice(i, 1);
     }
 
     // 피버 격자 모드: 제한시간·phase 없이 계속 누른다. 버튼 팝 애니메이션만 갱신.
@@ -255,8 +260,27 @@ export const g01Combo = {
     ctx.fillText('정답을 찾아 눌러봐!', cx, this.choices[0].y - L.gu(1.25));
 
     for (const c of this.choices) this._drawChoice(ctx, c);
+    this._drawFloats(ctx);
 
     this._drawFeverBanner(ctx);
+  },
+
+  // 획득 점수 부양 텍스트(버튼 위에서 위로) — 문제 영역과 겹치지 않는다.
+  _drawFloats(ctx) {
+    for (const f of this.floats) {
+      const p = f.t / f.dur;
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, 1 - p);
+      ctx.fillStyle = THEME.gold;
+      ctx.font = font(L.font(0.038));
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.lineWidth = L.gu(0.2);
+      ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+      ctx.strokeText(f.text, f.x, f.y - p * L.gu(2.5));
+      ctx.fillText(f.text, f.x, f.y - p * L.gu(2.5));
+      ctx.restore();
+    }
   },
 
   _drawChoice(ctx, c) {
@@ -369,7 +393,9 @@ export const g01Combo = {
         if (bonus > 0) {
           e.scoreManager.addPoints(bonus);
           if (e.fever) e.fever.addPoints(bonus);
-          e.ui.showComboText(`QUICK +${bonus}`, false);
+          // ⚠️ 문제 영역(중앙)과 겹치지 않게, 누른 버튼 위에서 위로 튀어오르는 게임 로컬 텍스트로 표시
+          //   (core showComboText는 화면 중앙 y≈0.34H라 g01의 문제 텍스트와 겹친다).
+          this.floats.push({ x: bx, y: by - btn.h / 2, text: `QUICK +${bonus}`, t: 0, dur: 0.6 });
         }
       }
 
@@ -547,6 +573,7 @@ export const g01Combo = {
     this.pendingWrong = null;
     this.feverBanner = null;
     this.gridBtns = [];
+    this.floats = [];
   },
 };
 

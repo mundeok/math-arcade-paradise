@@ -34,9 +34,10 @@ const ZOOM_MAX = 0.01; // 1.01배
 const FLOAT_DUR = 0.6; // 획득 점수 부양(≤0.70)
 const PUFF_DUR = 0.4; // 연기 구름(파티클 상한 내)
 
-const FIRE_COOLDOWN = 0.3; // 수동 발사 후 연사 방지 쿨다운
-const BASE_SEC = 3.4; // 콤보0에서 로봇이 화면을 내려오는 시간(느긋 — 조준 여유)
-const MIN_SEC = 1.7; // 하강 최소 시간(하드 클램프)
+const FIRE_COOLDOWN = 0.3; // 수동 발사 후 연사 방지 쿨다운(일반)
+const FEVER_COOLDOWN = 0.1; // 피버 중 연사 쿨다운(동시 3개 격추 위해 완화)
+const BASE_SEC = 4.2; // 콤보0에서 로봇이 화면을 내려오는 시간(재조정: 3.4→4.2, 3학년 조준 여유↑)
+const MIN_SEC = 2.2; // 하강 최소 시간(하드 클램프, 1.7→2.2로 상향)
 
 const NEARMISS_TTF = 0.35; // 바닥 닿기 0.35초 이내에 정지 → 니어미스
 const NEARMISS_DIST_RATIO = 0.1; // 또는 남은 거리 화면 높이 10% 이하
@@ -269,12 +270,23 @@ export const g07Shoot = {
   },
 
   _fire() {
-    if (this.fireCooldown > 0) return; // 연사 방지(0.3초)
-    this.fireCooldown = FIRE_COOLDOWN;
-    // 탄환은 발사 순간 발사기 레인(x 고정)으로만 직진 → 다른 레인 로봇엔 맞지 않는다.
-    // 연속 격추 시 탄환이 커진다(고유 재미). 상한 둠.
+    if (this.fireCooldown > 0) return; // 연사 방지
+    const e = this.engine;
+    const feverActive = !!(e.fever && e.fever.active);
+    // ⚠️ 탭 한 번 = 한 발(조준 필요). 피버 중엔 쿨다운만 짧아져(0.1초) 빠르게 재발사할 수 있다.
+    this.fireCooldown = feverActive ? FEVER_COOLDOWN : FIRE_COOLDOWN;
+    // 탄환은 발사 순간 발사기 레인(x 고정)으로만 직진 → 다른 레인 로봇엔 맞지 않는다(조준 유지).
+    // 연속 격추 시 탄환이 커진다(고유 재미). 피버 중엔 더 굵고 화려하게.
     const grow = 1 + Math.min(1.2, this.hitStreak * 0.12);
-    this.bullets.push({ x: this.charX, y: this.charY - this.charH / 2, r: L.w(0.016) * grow });
+    const r = L.w(0.016) * grow * (feverActive ? 1.3 : 1);
+    const muzzleY = this.charY - this.charH / 2;
+    this.bullets.push({ x: this.charX, y: muzzleY, r, fever: feverActive });
+    if (feverActive) {
+      // 총구 화염(화려한 연사 연출)
+      e.particles.emit(this.charX, muzzleY, 'sparkle', THEME.gold, 8);
+      e.particles.emit(this.charX, muzzleY, 'pop', '#ffe9a8', 4);
+      this._haptic(8);
+    }
   },
 
   // 탄환-로봇 충돌 해소. 레인이 분리돼 있어 한 탄환은 최대 한 로봇만 맞는다.
@@ -462,12 +474,19 @@ export const g07Shoot = {
       ctx.translate(-zx, -zy);
     }
 
-    // 탄환(위로 향하는 빛)
+    // 탄환(위로 향하는 빛). 피버 탄환은 궤적 잔상 + 더 밝은 광채.
     for (const b of this.bullets) {
       ctx.save();
       ctx.fillStyle = THEME.gold;
       ctx.shadowColor = THEME.gold;
-      ctx.shadowBlur = L.gu(0.6);
+      ctx.shadowBlur = L.gu(b.fever ? 1.1 : 0.6);
+      if (b.fever) {
+        ctx.globalAlpha = 0.45;
+        ctx.beginPath();
+        ctx.ellipse(b.x, b.y + b.r * 2.2, b.r * 0.8, b.r * 3.4, 0, 0, Math.PI * 2); // 아래로 늘어진 궤적
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
       ctx.beginPath();
       ctx.ellipse(b.x, b.y, b.r, b.r * 1.8, 0, 0, Math.PI * 2);
       ctx.fill();
