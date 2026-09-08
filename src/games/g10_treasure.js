@@ -16,7 +16,18 @@
 // 판정: 각 해적이 똑같은 수 q개씩 받고 남은 보석이 divisor보다 적으면 정답(= q개씩, 나머지 r).
 //   - 똑같이 안 나눔 → 어느 해적이 더 받았는지 표시 + 재시도(라이프 유지, 배분 실수는 계산 오류 아님)
 //   - 더 나눌 수 있음(남은 보석 ≥ 해적 수) → "아직 더 나눌 수 있어요" + 재시도(라이프 유지)
-//   라이프는 시간초과(판정 오류)로만 깎인다.
+//   라이프는 시간초과(판정 오류)와 Lv5 예측 실패로만 깎인다.
+//
+// ⚠️ 레벨별 배분 제한(축 A — 버튼 누르기가 아니라 나눗셈을 하게):
+//   - Lv1~2·피버: '한 바퀴 돌리기' 자유.
+//   - Lv3~4: 돌리기 3번 제한(_roundLimitFor), 다 쓰면 해적 탭으로 직접 배분(버튼은 비활성화하지 않고 안내).
+//   - Lv5: 돌리기 없음. "몇 개씩 갈까?"를 [−]/[+]로 예측 → 예측값으로 자동 배분 → 몫과 같으면 통과,
+//     다르면 라이프 -1(예측 모드, this.predict).
+// ⚠️ 오버(남은 보석 < 해적 수인데 배분 시도) 처리 — 라이프 대신 학습/시간으로:
+//   - 배분은 일어나지 않고 "n개로는 m명에게 못 나눠요" 안내. 라이프 X. ⚠️ 버튼/해적을 비활성화하지 않는다
+//     ('더 못 나누는 지점을 스스로 아는 것'이 나머지 개념의 핵심).
+//   - 개별 해적 탭도 동일: 가장 적게 받은 해적에게만 줄 수 있어(_giveOne) 균등이 깨지지 않는다.
+//   - 긴장은 시간으로: 오버 시도마다 제한시간 차감(OVER_PENALTY_SEC). 오버 없이 완료하면 +100(NO_OVER_BONUS).
 //
 // ⚠️ 이 게임은 '보석 수·해적 수'가 개정안 난이도 밴드로 정해지므로(원안 나눗셈 사다리는 피제수가
 //   너무 커서 손으로 배분 불가 — 96개 배분은 무리), g08처럼 게임이 숫자를 직접 생성해 나눗셈
@@ -39,6 +50,11 @@ const REVEAL_DUR = 1.2; // 식 조립 연출(초) — 긍정적 순간, 오답 �
 const HINT_DUR = 1.6; // 배분 실수 안내 지속(초)
 const GEM_ICON_MAX = 20; // 이 수를 넘으면 개별 아이콘 대신 뭉치로 표시
 const NEARMISS_RATIO = 0.35; // 제한시간의 이 비율 이상 남기고 완료 → 니어미스
+
+const ROUND_LIMIT = 3; // Lv3~4 '한 바퀴 돌리기' 허용 횟수(넘으면 직접 배분 유도)
+const OVER_PENALTY_SEC = 1.0; // 오버(못 나누는) 시도마다 제한시간 차감 → 긴장은 시간으로
+const NO_OVER_BONUS = 100; // 오버 시도 없이 완료 시 보너스 점수
+const PREDICT_TIME = 16; // Lv5 예측 모드 기본 제한시간(초) — 배분이 아니라 나눗셈 암산 중심이라 짧게
 
 // 난이도 밴드(개정안): pirates=해적 수 범위, qMin/qMax=1인당 몫 범위, cap=보석 수 상한
 const BANDS = {
@@ -112,6 +128,11 @@ export const g10Treasure = {
     this.movingGems = []; // 나머지 보석이 보물상자로 이동
     this.floats = [];
     this.roundPulse = 0; // 한 바퀴 돌리기 연출
+    this.roundsLeft = Infinity; // 남은 '한 바퀴 돌리기' 횟수(_nextProblem에서 레벨별 설정)
+    this.overAttempts = 0; // 이번 문제의 오버(못 나누는) 시도 수 → 0이면 완료 보너스
+    this.predict = false; // Lv5 예측 모드 여부(돌리기·직접배분 없이 '몇 개씩'을 예측)
+    this.predictVal = 1; // 예측값(몇 개씩)
+    this.predMax = 9; // 예측 상한(문제별 계산)
     this.wasFever = false;
     this.feverBanner = null;
     this.time = 0;
@@ -168,15 +189,42 @@ export const g10Treasure = {
     this.hint = null;
     this.reveal = null;
     this.movingGems = [];
+    this.overAttempts = 0;
+
+    // 돌리기 제한/예측 모드(축 A, 레벨별). 피버 easy면 항상 자유.
+    //   Lv1~2·피버: 자유(∞) / Lv3~4: 3번 제한 → 직접 배분 유도 / Lv5: 돌리기 없음 → 예측 모드.
+    this.predict = !easy && level >= 5; // Lv5 & 비피버 → '몇 개씩' 예측 후 자동 배분
+    this.roundsLeft = this._roundLimitFor(level, easy);
+    this.predictVal = 1;
+    this.predMax = Math.floor(D / P) + 3; // 예측 상한(정답 근처까지만)
 
     // 피버 easy 문제는 실제로 쉬우므로 리포트 오분류를 막기 위해 level=1로 기록(축 A 자체는 불변).
     this.problem = { a: D, b: P, op: '÷', answer: q, remainder: r > 0 ? r : null, text: `${D} ÷ ${P}`, blank: null, level: easy ? 1 : level };
 
-    // 제한시간: 보석 수에 비례(넉넉히). 교사 배율 반영.
-    const base = 8 + D * 0.7;
-    this.timeLimit = base * (e.settings.timeScale || 1);
+    // 제한시간(교사 배율 반영):
+    //   - 예측 모드(Lv5): 배분이 아니라 나눗셈 암산이므로 짧게(PREDICT_TIME + 해적수 여유).
+    //   - 그 외: 보석 수에 비례(넉넉히). ⚠️ 기존 8+D×0.7은 Lv5 대용량 D(최대 90)에서 과다했으나,
+    //     Lv5가 예측 모드로 분리되어 이 공식은 이제 D≤22 구간에만 적용된다 → 적정(예: D=22 → 23초).
+    const scale = e.settings.timeScale || 1;
+    this.timeLimit = (this.predict ? PREDICT_TIME + P * 0.8 : 8 + D * 0.7) * scale;
     this.timeLeft = this.timeLimit;
     this.mode = 'play';
+  },
+
+  // 레벨별 '한 바퀴 돌리기' 허용 횟수. ∞=자유. Lv5는 예측 모드라 0(돌리기 자체가 없음).
+  _roundLimitFor(level, easy) {
+    if (easy) return Infinity; // 피버 중 항상 자유(피버 취지)
+    if (level <= 2) return Infinity; // Lv1~2 자유(나눗셈 감각 익히기)
+    if (level >= 5) return 0; // Lv5 예측 모드
+    return ROUND_LIMIT; // Lv3~4
+  },
+  _roundLimited() {
+    return Number.isFinite(this.roundsLeft);
+  },
+  // 오버(남은 보석 < 해적 수인데 배분 시도) — 라이프는 깎지 않고 시간만 흘려 긴장을 준다.
+  _overAttempt() {
+    this.overAttempts += 1;
+    this.timeLeft = Math.max(0, this.timeLeft - OVER_PENALTY_SEC * (this.engine.settings.timeScale || 1));
   },
 
   // 교사 단(dan) 설정 ∩ 밴드 해적 범위. 교집합이 비면 밴드 범위 사용.
@@ -262,6 +310,28 @@ export const g10Treasure = {
       this.mode = 'concept';
       return;
     }
+
+    // 예측 모드(Lv5): [−]/[+]로 '몇 개씩'을 정하고 [나눠주기!]로 판정. 해적 탭/돌리기/리셋 없음.
+    if (this.predict) {
+      if (hitRect(this._btnPredMinus(), x, y)) {
+        this.predictVal = Math.max(1, this.predictVal - 1);
+        this.engine.sound.play('tick');
+        this._haptic(8);
+        return;
+      }
+      if (hitRect(this._btnPredPlus(), x, y)) {
+        this.predictVal = Math.min(this.predMax, this.predictVal + 1);
+        this.engine.sound.play('tick');
+        this._haptic(8);
+        return;
+      }
+      if (hitRect(this._btnDone(), x, y)) {
+        this._judgePredict();
+        return;
+      }
+      return;
+    }
+
     if (hitRect(this._btnDone(), x, y)) {
       this._judge();
       return;
@@ -286,6 +356,20 @@ export const g10Treasure = {
 
   _giveOne(i) {
     if (this.pile <= 0) return;
+    const min = Math.min(...this.counts);
+    // ⚠️ 균등 유지: 가장 적게 받은 해적에게만 준다(한 명에게 몰아주기 방지 = "균등하지 않게 주면 안 됨").
+    if (this.counts[i] > min) {
+      this.hint = { type: 'giveleast', t: 0 };
+      this.engine.ui.shake(4, 0.08);
+      return;
+    }
+    // 모두 같은 수인데 남은 보석 < 해적 수 → 더는 똑같이 못 나눔(= 나머지). 오버 시도로 처리(라이프 X).
+    if (Math.max(...this.counts) === min && this.pile < this.divisor) {
+      this._overAttempt();
+      this.hint = { type: 'nofull', t: 0 };
+      this.engine.ui.shake(6, 0.1);
+      return;
+    }
     this.pile -= 1;
     this.counts[i] += 1;
     this.hint = null;
@@ -296,20 +380,44 @@ export const g10Treasure = {
   },
 
   _dealRound() {
+    // 돌리기 횟수 제한(Lv3~4). 다 쓰면 직접 배분(해적 탭) 유도 — ⚠️ 버튼 비활성화하지 않고 안내만.
+    if (this._roundLimited() && this.roundsLeft <= 0) {
+      this.hint = { type: 'limit', t: 0 };
+      this.engine.ui.shake(5, 0.1);
+      this.engine.sound.play('wrong');
+      return;
+    }
     if (this.pile < this.divisor) {
-      // 한 바퀴 돌릴 만큼 안 남음 → 가벼운 안내(라이프 영향 없음)
+      // 남은 보석 < 해적 수 → 한 바퀴 못 돎(오버 시도). 라이프 X, 시간만 흐른다.
+      this._overAttempt();
       this.hint = { type: 'nofull', t: 0 };
       this.engine.ui.shake(6, 0.1);
       return;
     }
     for (let i = 0; i < this.divisor; i++) this.counts[i] += 1;
     this.pile -= this.divisor;
+    if (this._roundLimited()) this.roundsLeft -= 1;
     this.hint = null;
     this.roundPulse = 0.35;
     const rects = this._pirateRects();
     for (const r of rects) this.engine.particles.emit(r.x + r.w / 2, r.y + L.gu(0.4), 'pop', THEME.gold, 5);
     this.engine.sound.play('pop');
     this._haptic(15);
+  },
+
+  // 예측 모드(Lv5): 예측값이 몫과 같으면 자동 균등 배분 후 완료, 다르면 라이프 -1(정답식 표시).
+  _judgePredict() {
+    const e = this.engine;
+    const pred = this.predictVal;
+    if (pred === this.q) {
+      this.counts = new Array(this.divisor).fill(this.q);
+      this.pile = this.r;
+      this._complete();
+    } else {
+      // 예측 실패(너무 크거나 작음) → 라이프 -1 + core 정답식 표시(1.2초). 다음 문제로.
+      e.sound.play('wrong');
+      e.answerWrong(this.problem, pred, { loseLife: true, onResume: () => this._nextProblem() });
+    }
   },
 
   _resetDistribution() {
@@ -348,8 +456,14 @@ export const g10Treasure = {
     const combo = e.scoreManager.combo;
     let pts = 120 + combo * 10;
     if (this.r > 0) pts += 40; // 나머지 있는 문제 가산
+    // 오버(못 나누는) 시도 없이 깔끔히 완료 → 보너스(예측 모드는 배분 오버 개념이 없어 제외).
+    const cleanBonus = !this.predict && this.overAttempts === 0;
+    if (cleanBonus) pts += NO_OVER_BONUS;
     e.answerCorrect(this.problem, this.q, pts); // 점수배수·게이지·정답음·콤보문구 자동
     const shown = pts * (e.fever && e.fever.active ? e.fever.scoreMultiplier : 1);
+    if (cleanBonus) {
+      this.floats.push({ x: L.W / 2, y: L.y(0.33), text: '완벽 분배! +100', color: THEME.correct, size: L.font(0.036), t: 0, dur: 1.0 });
+    }
 
     // 니어미스: 제한시간을 넉넉히 남기고 완료
     if (!this.nearMissUsed && this.timeLeft >= this.timeLimit * NEARMISS_RATIO) {
@@ -434,6 +548,14 @@ export const g10Treasure = {
   _btnDone() {
     return { x: L.safe, y: this._btnRow() + L.gu(2.9), w: L.W - L.safe * 2, h: L.gu(2.6) };
   },
+  // 예측 모드 스테퍼: [❓개념] 옆의 [−] … [+] (그 사이에 '몇 개씩' 숫자). _btnDone은 '나눠주기!'로 재사용.
+  _btnPredMinus() {
+    const c = this._btnConcept();
+    return { x: c.x + c.w + L.gu(0.4), y: this._btnRow(), w: L.gu(3), h: L.gu(2.4) };
+  },
+  _btnPredPlus() {
+    return { x: L.W - L.safe - L.gu(3), y: this._btnRow(), w: L.gu(3), h: L.gu(2.4) };
+  },
   _btnConceptClose() {
     const w = L.gu(9);
     return { x: (L.W - w) / 2, y: L.y(0.82), w, h: L.gu(2.4) };
@@ -469,7 +591,7 @@ export const g10Treasure = {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = THEME.text;
-    const msg = `보석 ${this.dividend}개를 해적 ${this.divisor}명에게 똑같이!`;
+    const msg = this.predict ? `보석 ${this.dividend}개, 해적 ${this.divisor}명 — 몇 개씩 갈까?` : `보석 ${this.dividend}개를 해적 ${this.divisor}명에게 똑같이!`;
     let size = L.font(0.04);
     ctx.font = font(size);
     const maxW = L.W - L.safe * 2;
@@ -606,11 +728,37 @@ export const g10Treasure = {
   },
 
   _drawButtons(ctx) {
-    this._btn(ctx, this._btnReset(), '↺ 다시', THEME.panel, L.font(0.03));
-    this._btn(ctx, this._btnRound(), '🔄 한 바퀴 돌리기', this.roundPulse > 0 ? THEME.gold : THEME.accent, L.font(0.036));
-    this._btn(ctx, this._btnDone(), '✅ 다 나눴어요!', THEME.correct, L.font(0.044));
-    // 개념 재접근 버튼(좌상단)
+    // 개념 재접근 버튼(항상)
     this._btn(ctx, this._btnConcept(), '❓개념', THEME.panel, L.font(0.026));
+
+    // 예측 모드(Lv5): [−] [ n개씩 ] [+] + [n개씩 나눠주기!]
+    if (this.predict) {
+      this._btn(ctx, this._btnPredMinus(), '−', THEME.accent, L.font(0.06));
+      this._btn(ctx, this._btnPredPlus(), '+', THEME.accent, L.font(0.06));
+      this._drawPredValue(ctx);
+      this._btn(ctx, this._btnDone(), `${this.predictVal}개씩 나눠주기!`, THEME.correct, L.font(0.04));
+      return;
+    }
+
+    this._btn(ctx, this._btnReset(), '↺ 다시', THEME.panel, L.font(0.03));
+    // 돌리기 버튼: 제한이 있으면 남은 횟수 표시(⚠️ 0이어도 비활성화/회색 처리하지 않는다 — 눌러 안내).
+    let roundLabel = '🔄 한 바퀴 돌리기';
+    if (this._roundLimited()) roundLabel += ` (${this.roundsLeft})`;
+    this._btn(ctx, this._btnRound(), roundLabel, this.roundPulse > 0 ? THEME.gold : THEME.accent, L.font(0.034));
+    this._btn(ctx, this._btnDone(), '✅ 다 나눴어요!', THEME.correct, L.font(0.044));
+  },
+
+  _drawPredValue(ctx) {
+    const m = this._btnPredMinus();
+    const p = this._btnPredPlus();
+    const cx = (m.x + m.w + p.x) / 2;
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = THEME.gold;
+    ctx.font = font(L.font(0.06));
+    ctx.fillText(`${this.predictVal}개씩`, cx, this._btnRow() + L.gu(1.2));
+    ctx.restore();
   },
 
   _btn(ctx, r, label, color, fsize) {
@@ -634,7 +782,9 @@ export const g10Treasure = {
     let msg = '';
     if (this.hint.type === 'unequal') msg = '똑같이 나눠야 해요! (많이 받은 해적 확인)';
     else if (this.hint.type === 'more') msg = '아직 더 나눌 수 있어요!';
-    else if (this.hint.type === 'nofull') msg = '한 바퀴 돌리기엔 보석이 모자라요';
+    else if (this.hint.type === 'nofull') msg = `${this.pile}개로는 ${this.divisor}명에게 못 나눠요`;
+    else if (this.hint.type === 'giveleast') msg = '적게 받은 해적부터 주세요!';
+    else if (this.hint.type === 'limit') msg = '돌리기를 다 썼어요! 해적을 눌러 직접 나눠주세요';
     if (!msg) return;
     ctx.save();
     ctx.globalAlpha = this.hint.t < HINT_DUR - 0.4 ? 1 : Math.max(0, (HINT_DUR - this.hint.t) / 0.4);
@@ -777,6 +927,9 @@ export const g10Treasure = {
   onHover(x, y) {
     if (this.mode === 'concept') return hitRect(this._btnConceptClose(), x, y);
     if (this.mode === 'reveal') return false;
+    if (this.predict) {
+      return hitRect(this._btnConcept(), x, y) || hitRect(this._btnPredMinus(), x, y) || hitRect(this._btnPredPlus(), x, y) || hitRect(this._btnDone(), x, y);
+    }
     if (hitRect(this._btnDone(), x, y) || hitRect(this._btnRound(), x, y) || hitRect(this._btnReset(), x, y) || hitRect(this._btnConcept(), x, y)) return true;
     for (const r of this._pirateRects()) if (hitRect(r, x, y)) return true;
     return false;

@@ -2,6 +2,10 @@
 // 개념확장형. "식의 값이 같다(등식)"를 배우는 게임이다.
 //   문제 "6 × 4 = ?"(답 24)가 뜨면, 부양하는 풍선 중 값이 24인 것을 전부 터뜨려야 다음 문제로 넘어간다.
 //   정답 풍선은 24 뿐 아니라 8×3·48÷2·4×6 처럼 값이 같은 '식'으로도 나타난다 → 2️⃣ 캐치와 차별화.
+//   ⚠️ 등식(식의 값이 같다) '표기'는 수학 레벨에 따라 단계적으로 도입한다(초3이 처음부터 식 비교에
+//      눌리지 않게): Lv1 숫자만(24,24,24) → Lv2 숫자+곱셈식(24,8×3) → Lv3 나눗셈식까지(48÷2).
+//      이 게임의 출제 상한은 Lv3(SPEC §2.1)이라 원 요구의 5단계를 3레벨에 압축했다(표기 단계만 레벨로
+//      가른다 — 속도·풍선 수 등 게임 난이도(축 B)는 여전히 콤보로만 계산, 레벨과 무관).
 // 확정 인터페이스(SPEC §7)만 사용한다. core/scenes는 건드리지 않는다.
 //
 // ⚠️ 좌표·크기·폰트는 전부 core/layout.js 의 L 헬퍼로 계산한다(픽셀 리터럴 금지).
@@ -148,6 +152,12 @@ export const g09Balloon = {
     const answer = this.problem.answer;
     const combo = e.scoreManager.combo;
 
+    // 등식 '표기' 단계 도입(위 헤더 참고). 수학 레벨(축 A)로만 표기를 가른다 — 속도/개수(축 B)는 불변.
+    //   Lv1: 숫자만 / Lv2: 숫자+곱셈식 / Lv3+: 나눗셈식까지. problem.level 없으면 Lv1(숫자)로 안전 처리.
+    const lv = this.problem.level || 1;
+    const allowExpr = lv >= 2; // Lv2부터 식 표기 허용
+    const allowDivision = lv >= 3; // Lv3부터 나눗셈식 추가
+
     // 오답 값은 반드시 코어가 생성(근접도는 콤보 따라 상승 — 축 B)
     const closeness = Math.min(0.85, 0.15 + 0.03 * combo);
     const distractors = e.problemGenerator.makeDistractors(this.problem, this._wrongCount(), closeness);
@@ -158,17 +168,17 @@ export const g09Balloon = {
     const used = new Set();
     const items = [];
 
-    // 정답 풍선: 최소 1개는 '식' 표기(등식 개념), 나머지는 숫자/식 혼합. 라벨 중복 회피.
+    // 정답 풍선: Lv2+면 최소 1개는 '식' 표기(등식 개념), 나머지는 숫자/식 혼합. Lv1은 전부 숫자(24,24,24).
     const correctCount = this._correctCount();
     for (let i = 0; i < correctCount; i++) {
-      const wantExpr = i === 0 ? true : Math.random() < 0.6;
-      const label = uniqueLabel(answer, wantExpr, avoid, used);
+      const wantExpr = allowExpr && (i === 0 ? true : Math.random() < 0.6);
+      const label = uniqueLabel(answer, wantExpr, avoid, used, allowDivision);
       items.push({ value: answer, correct: true, label });
     }
-    // 오답 풍선: 코어가 준 값을 숫자 또는 식으로 표기(예: 26, 12×3, 20)
+    // 오답 풍선: 코어가 준 값을 숫자 또는 식으로 표기(Lv1은 숫자만, 예: 26, 20, 18)
     for (const v of distractors) {
-      const wantExpr = Math.random() < 0.4;
-      const label = uniqueLabel(v, wantExpr, null, used);
+      const wantExpr = allowExpr && Math.random() < 0.4;
+      const label = uniqueLabel(v, wantExpr, null, used, allowDivision);
       items.push({ value: v, correct: false, label });
     }
 
@@ -604,10 +614,10 @@ export const g09Balloon = {
 // ── 표기(라벨) 생성 ────────────────────────────────────────
 // 값 V를 '식' 또는 숫자로 표기한다. 오답 값 자체는 코어(makeDistractors)가 만든 것을 그대로 쓰고,
 // 여기서는 그 값을 어떻게 '보여줄지'(24 ↔ 8×3 ↔ 48÷2)만 결정한다 = 등식 개념 학습의 핵심.
-function uniqueLabel(value, wantExpr, avoid, used) {
+function uniqueLabel(value, wantExpr, avoid, used, allowDivision) {
   let label = '';
   for (let guard = 0; guard < 12; guard++) {
-    label = makeLabel(value, wantExpr, avoid);
+    label = makeLabel(value, wantExpr, avoid, allowDivision);
     if (!used.has(label)) break;
   }
   // 그래도 겹치면 숫자 표기로(항상 서로 다르진 않지만 최후 수단)
@@ -616,13 +626,15 @@ function uniqueLabel(value, wantExpr, avoid, used) {
   return label;
 }
 
-function makeLabel(V, wantExpr, avoid) {
+function makeLabel(V, wantExpr, avoid, allowDivision) {
   if (!wantExpr) return String(V);
   const forms = [];
   const pf = productForm(V, avoid);
   if (pf) forms.push(pf);
-  const df = divisionForm(V);
-  if (df) forms.push(df);
+  if (allowDivision) {
+    const df = divisionForm(V); // Lv3+에서만 나눗셈식 표기
+    if (df) forms.push(df);
+  }
   if (!forms.length) return String(V); // 예쁜 식이 없으면 숫자로
   return forms[Math.floor(Math.random() * forms.length)];
 }
