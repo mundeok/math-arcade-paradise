@@ -1,15 +1,20 @@
-// g08_chain.js — 🔗 배수 체인 (SPEC §4 8️⃣ / Phase 3)
-// 연쇄형. 떠다니는 숫자 버블 중 'N단의 배수'를 작은 수부터 순서대로 탭해 체인을 잇는다.
-// 확정 인터페이스(SPEC §7)만 사용한다. core/scenes는 건드리지 않는다.
+// g08_chain.js — 🔗 배수 체인 (SPEC §4 8️⃣ / Phase 3, 개정: 순서 강제 → 보너스 유도)
+// 연쇄형. 떠다니는 숫자 버블 중 'N단의 배수'를 찾아 탭한다. 확정 인터페이스(SPEC §7)만 사용.
 //
-// 교육 목적: 배수 개념 ↔ 나눗셈(나누어떨어짐)을 연결한다.
-//   - 곱셈 웨이브: "N단의 배수를 순서대로 이어라" (N×k=V 사실로 기록)
-//   - 나눗셈 웨이브(교대): "N으로 나누어떨어지는 수를 찾아라" (V÷N=k 사실로 기록)
-//   두 웨이브 모두 메커닉은 'N의 배수를 작은 수부터 순서대로 탭'으로 동일하고, 프레임/기록만 다르다.
+// ⚠️ 개정(순서 강제 폐지): 기존엔 작은 수부터 순서대로만 이을 수 있고 건너뛰면 체인이 끊기며
+//   라이프가 깎였다. 문제 — 관심이 '다음 하나'뿐이라 나머지 버블이 배경이 되고, 급해서 건너뛴 경우까지
+//   벌을 받았다. → 순서를 강제하지 않되, 순서대로 하면 보너스를 준다:
+//   - 해당 단의 배수를 아무거나 누르면 정답(기본 점수).
+//   - 작은 수부터 순서대로 이으면 체인이 연결되고 보너스 배수(3칸 1.5배 / 5칸 2배 / 10칸+ 3배).
+//   - 순서가 끊겨도 라이프는 안 깎는다(체인만 0으로, 보너스 사라짐).
+//   - 함정(배수 아닌 수)은 기존대로 라이프 -1 + 정답표시(배수 판별 오류 → 학습 피드백 필요).
+//   효과: 화면 전체를 훑어 손이 빨라지고, 잘하는 아이는 순서 보너스를 노리고 어려운 아이는 아무거나
+//   눌러도 진행된다(실패↓ 목표↑).
 //
-// ⚠️ 이 게임은 '배수 목록'이 콘텐츠라 problemGenerator.nextProblem(a×b) 패턴에 맞지 않는다.
-//    버블 숫자(배수·함정)는 게임이 생성하고, 각 정답 링크를 곱셈/나눗셈 '사실 객체'로 만들어
-//    answerCorrect/answerWrong 에 넘긴다(세션·리포트·레벨조정은 core가 처리). core는 수정하지 않는다.
+// 교육 목적: 배수 개념 ↔ 나눗셈(나누어떨어짐). 곱셈 웨이브 N×k=V / 나눗셈 웨이브 V÷N=k 로 기록.
+//
+// ⚠️ 이 게임은 '배수 목록'이 콘텐츠라 nextProblem 패턴에 안 맞는다. 버블 숫자는 게임이 생성하고,
+//    각 정답을 곱셈/나눗셈 '사실 객체'로 만들어 answerCorrect/answerWrong 에 넘긴다(core 미수정).
 //
 // 재미 표준(§2.6): fever:true, 니어미스(버블이 화면 밖 직전 탭), 정답 즉시 진행, L 헬퍼 좌표.
 //   고유 재미(연쇄): 체인이 길어질수록 연결선이 굵어지고 빛난다.
@@ -36,14 +41,14 @@ export const g08Chain = {
   }, // 버블 반지름
 
   tutorial: {
-    text: '4, 8, 12… 순서대로 눌러서 길게 이어봐!',
+    text: '4단 배수를 찾아 눌러! 순서대로 이으면 보너스!',
     draw(ctx) {
       const cx = L.W / 2;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillStyle = THEME.text;
       ctx.font = font(L.font(0.04));
-      ctx.fillText('4단의 배수를 순서대로!', cx, L.gu(1.3));
+      ctx.fillText('4단 배수를 찾아라!', cx, L.gu(1.3));
 
       // 4,8,12를 잇는 초록 체인 + 함정(14)
       const pts = [
@@ -85,9 +90,10 @@ export const g08Chain = {
     this.D = 4;
     this.divWave = false;
     this.waveIndex = 0;
-    this.nextIdx = 0; // 다음 기대 배수 인덱스(0→N, 1→2N …)
-    this.chainPath = []; // 최근 탭 위치(연결선용)
-    this.chainValues = []; // 이번 웨이브에서 이어온 값들(안내용)
+    this.chainCount = 0; // 연속 순서 정답 수(체인). 웨이브를 넘어도 유지, 순서 끊기면 0.
+    this.chainExpected = 4; // 체인 확장에 필요한 다음 값(작은 수부터). _startWave에서 D로 설정.
+    this.chainPath = []; // 체인 연결선(순서 정답 탭 위치)
+    this.poppedCount = 0; // 이번 웨이브에 터뜨린 배수 수(WAVE_GOAL 도달 → 다음 단)
     this.nearMissUsed = false;
     this.floats = [];
     this.zoomT = 0;
@@ -142,17 +148,22 @@ export const g08Chain = {
     // 프레임: 기본은 웨이브마다 곱셈/나눗셈 교대. 단, 교사 설정이 특정 연산이면 그것으로 고정(교사 우선).
     const op = this.engine.settings.operation || 'mixed';
     this.divWave = op === 'divide' ? true : op === 'multiply' ? false : this.waveIndex % 2 === 1;
-    this.nextIdx = 0;
-    this.chainValues = [];
-    this.chainPath = [];
+    // ⚠️ 체인(chainCount·chainPath)은 웨이브를 넘어도 유지한다(순서대로 계속 이으면 10칸+까지 성장).
+    //   새 단의 가장 작은 배수(D)부터 이어야 체인이 지속된다.
+    this.chainExpected = this.D;
+    this.poppedCount = 0;
     this.nearMissUsed = false;
     this.bubbles = [];
-    // 초기 버블: 다음 기대값 보장 + 나머지 채우기
     this._refill();
   },
 
-  _nextValue() {
-    return (this.nextIdx + 1) * this.D;
+  // 체인 길이 → 보너스 배수(3칸 1.5배 / 5칸 2배 / 10칸+ 3배).
+  _chainMult() {
+    const c = this.chainCount;
+    if (c >= 10) return 3;
+    if (c >= 5) return 2;
+    if (c >= 3) return 1.5;
+    return 1;
   },
 
   _trapValue() {
@@ -217,10 +228,11 @@ export const g08Chain = {
   //   ⚠️ 같은 값 중복 금지(#2) + 함정 비율 최소 40% 유지(#3, 순서 맞추기 게임 방지).
   _refill() {
     const existing = new Set(this.bubbles.map((b) => b.value));
-    const nextV = this._nextValue();
-    if (this.nextIdx < WAVE_GOAL && !existing.has(nextV)) {
-      this._spawnBubble(nextV, true);
-      existing.add(nextV);
+    // 체인 지속을 위해 다음 기대값(체인 중)·또는 가장 작은 배수 D(체인 없음)를 화면에 유지(소프트락 방지).
+    const keep = this.chainCount > 0 ? this.chainExpected : this.D;
+    if (keep <= WAVE_GOAL * this.D && !existing.has(keep)) {
+      this._spawnBubble(keep, true);
+      existing.add(keep);
     }
     const want = this._bubbleCount();
     const trapTarget = this._feverEasyActive() ? 0.25 : 0.4; // 피버 easy: 함정 비율 40%→25%로 낮춤
@@ -322,11 +334,29 @@ export const g08Chain = {
     }
     if (!target) return; // 빈 공간 탭 → 무판정
 
-    const nextV = this._nextValue();
-    if (target.value === nextV) {
-      // 정답 링크: 순서 맞음
-      const k = this.nextIdx + 1;
-      const fact = this._fact(k, nextV);
+    if (target.isTarget) {
+      // ── 배수 = 정답(순서 무관, 기본 점수). 순서대로면 체인 보너스 배수. ──
+      const V = target.value;
+      // 순서 판정: 작은 수부터(D, 2D, 3D…) 이어가면 체인 유지/확장. 아니면 체인 초기화(라이프 영향 없음).
+      if (V === this.chainExpected) {
+        this.chainCount += 1;
+        this.chainExpected = V + this.D;
+        this.chainPath.push({ x: target.x, y: target.y });
+        if (this.chainPath.length > 12) this.chainPath.shift();
+      } else if (V === this.D) {
+        this.chainCount = 1; // 가장 작은 배수 → 새 체인 시작
+        this.chainExpected = 2 * this.D;
+        this.chainPath = [{ x: target.x, y: target.y }];
+      } else {
+        this.chainCount = 0; // 순서 끊김 → 체인 초기화(다시 D부터). 라이프는 안 깎는다.
+        this.chainExpected = this.D;
+        this.chainPath = [];
+      }
+
+      const k = Math.round(V / this.D);
+      const fact = this._fact(k, V);
+      const chainMult = this._chainMult();
+      const pts = Math.round(30 * chainMult); // 기본 30 × 체인 보너스(1/1.5/2/3)
 
       // 니어미스: 화면 가장자리 직전 버블을 잡음 (웨이브당 1회)
       const R = this._playRect();
@@ -334,28 +364,14 @@ export const g08Chain = {
       const nearEdge = target.x < R.x0 + mg || target.x > R.x1 - mg || target.y < R.y0 + mg || target.y > R.y1 - mg;
       const nearMiss = !this.nearMissUsed && nearEdge;
 
-      // 점수: 링크 기본 30(체인 10+면 3배). 콤보 3/5 도달 시 보너스 +80/+200(피버 배수).
-      const linkPts = 30 * (e.scoreManager.combo >= 9 ? 3 : 1);
-      e.answerCorrect(fact, nextV, linkPts); // 점수2배·게이지·정답음·콤보문구(CHAIN!) 자동
-      const combo = e.scoreManager.combo;
-      const fmult = e.fever && e.fever.active ? e.fever.scoreMultiplier : 1;
-      if (combo === 3) {
-        e.scoreManager.addPoints(Math.round(80 * fmult));
-        if (e.fever) e.fever.addPoints(Math.round(80 * fmult));
-      } else if (combo === 5) {
-        e.scoreManager.addPoints(Math.round(200 * fmult));
-        if (e.fever) e.fever.addPoints(Math.round(200 * fmult));
-      }
+      e.answerCorrect(fact, V, pts); // 점수배수·게이지·정답음·콤보문구 자동
+      const shown = Math.round(pts * (e.fever && e.fever.active ? e.fever.scoreMultiplier : 1));
+      this.poppedCount += 1;
 
-      // 체인 시각/진행
-      this.chainPath.push({ x: target.x, y: target.y });
-      if (this.chainPath.length > 10) this.chainPath.shift();
-      this.chainValues.push(nextV);
-      this.nextIdx += 1;
-
-      // 손맛
-      this.floats.push({ x: target.x, y: target.y, text: `+${linkPts}`, color: THEME.correct, size: L.font(0.036), t: 0, dur: 0.55 });
-      e.particles.emit(target.x, target.y, 'sparkle', THEME.correct, 14 + Math.min(20, combo));
+      // 손맛(체인 배수는 골드로 강조)
+      const tag = chainMult > 1 ? ` ×${chainMult}` : '';
+      this.floats.push({ x: target.x, y: target.y, text: `+${shown}${tag}`, color: chainMult > 1 ? THEME.gold : THEME.correct, size: L.font(0.036), t: 0, dur: 0.55 });
+      e.particles.emit(target.x, target.y, 'sparkle', THEME.correct, 14 + Math.min(20, this.chainCount * 2));
       e.particles.emit(target.x, target.y, 'pop', THEME.gold, 8);
       e.ui.shake(6, 0.09);
       this.zoomT = 0.06;
@@ -364,26 +380,27 @@ export const g08Chain = {
         e.reportNearMiss(target.x, target.y);
       }
 
-      // 탭한 버블 제거
       this.bubbles = this.bubbles.filter((b) => b !== target);
 
-      // 웨이브 완성?
-      if (this.nextIdx >= WAVE_GOAL) {
+      // 웨이브 완성?(배수 WAVE_GOAL개 터뜨림 — 순서 무관). 체인은 유지한 채 새 단으로.
+      if (this.poppedCount >= WAVE_GOAL) {
         e.ui.showComboText('다음 단!', false);
         e.ui.flash('rgba(255,220,140,0.35)', 0.1);
         e.particles.emit(L.W / 2, L.y(0.5), 'sparkle', THEME.gold, 20);
         this.waveIndex += 1;
-        this._startWave(); // 체인(=콤보)은 유지, 새 단으로
+        this._startWave();
       } else {
         this._refill();
       }
     } else {
-      // 함정 or 순서 건너뜀 → 체인 끊김 + 라이프 -1 + 정답표시(다음 기대값 사실)
-      const expected = this._fact(this.nextIdx + 1, nextV);
+      // ── 함정(배수 아님) → 라이프 -1 + 정답표시(배수 판별 오류 = 학습 피드백). 체인 초기화. ──
+      const V = target.value;
+      const prob = { a: V, b: this.D, op: '÷', answer: Math.floor(V / this.D), remainder: V % this.D, text: `${V} ÷ ${this.D}`, blank: null, level: 1 };
       this.bubbles = this.bubbles.filter((b) => b !== target);
+      this.chainCount = 0;
+      this.chainExpected = this.D;
       this.chainPath = [];
-      this.chainValues = [];
-      e.answerWrong(expected, target.value, { loseLife: true, onResume: () => this._refill() });
+      e.answerWrong(prob, V, { loseLife: true, onResume: () => this._refill() });
     }
   },
 
@@ -399,24 +416,30 @@ export const g08Chain = {
 
     // 지시문 — 안전 여백 안에 반드시 들어오도록 자동 축소(넘치면 폭에 맞춰 줄임)
     ctx.fillStyle = THEME.text;
-    const title = this.divWave ? `${this.D}로 나누어떨어지는 수!` : `${this.D}단 배수를 순서대로!`;
+    const title = this.divWave ? `${this.D}로 나누어떨어지는 수 찾기!` : `${this.D}단 배수를 찾아라!`;
     this._drawFit(ctx, title, cx, L.zone.problem, 0.052, 0.036, 'bold');
 
-    // 이어온 체인 값 안내(다음 수는 알려주지 않음 — 스스로 계산). 이것도 폭에 맞춰 축소.
-    ctx.fillStyle = THEME.subtext;
-    const seq = this.chainValues.length ? this.chainValues.join(' → ') + ' → ?' : '가장 작은 배수부터!';
+    // 힌트: 체인 연결 중이면 보너스 안내, 아니면 순서 유도(작게).
+    let seq;
+    if (this.chainCount >= 1) {
+      const m = this._chainMult();
+      seq = m > 1 ? `체인 ${this.chainCount} · 보너스 ×${m}!` : `순서대로 이으면 보너스! (체인 ${this.chainCount})`;
+    } else {
+      seq = '작은 수부터 순서대로 이으면 보너스!';
+    }
+    ctx.fillStyle = this.chainCount >= 3 ? THEME.gold : THEME.subtext;
     this._drawFit(ctx, seq, cx, L.zone.problem + L.gu(1.7), 0.03, 0.02, 'normal');
 
-    // 체인 연결선(길수록 굵고 빛남)
+    // 체인 연결선(체인 길수록 굵고 빛남)
     if (this.chainPath.length >= 2) {
-      const combo = this.engine.scoreManager.combo;
+      const cc = this.chainCount;
       ctx.save();
       ctx.strokeStyle = THEME.correct;
-      ctx.lineWidth = L.gu(0.15) + Math.min(L.gu(0.5), combo * L.gu(0.03));
+      ctx.lineWidth = L.gu(0.15) + Math.min(L.gu(0.5), cc * L.gu(0.04));
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
       ctx.shadowColor = THEME.gold;
-      ctx.shadowBlur = Math.min(L.gu(1.2), combo * L.gu(0.12));
+      ctx.shadowBlur = Math.min(L.gu(1.2), cc * L.gu(0.12));
       ctx.beginPath();
       ctx.moveTo(this.chainPath[0].x, this.chainPath[0].y);
       for (let i = 1; i < this.chainPath.length; i++) ctx.lineTo(this.chainPath[i].x, this.chainPath[i].y);
@@ -514,7 +537,6 @@ export const g08Chain = {
     this.engine = null;
     this.bubbles = [];
     this.chainPath = [];
-    this.chainValues = [];
     this.floats = [];
     this.feverBanner = null;
   },
