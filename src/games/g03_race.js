@@ -13,17 +13,21 @@
 //
 // ⚠️ 놓침 ≠ 오답 완충(중요): 손이 늦어 오답 차선을 지나는 것과 계산을 틀린 것을 구분할 수 없으므로,
 //   (1) 게이트 도달 0.4초 전부터 차선 변경을 막고(판정 확정), 확정 순간 현재 차선 게이트를 강조한다.
-//   (2) 게이트 간격(하강 시간)을 최소 2.5초로 확보한다 — 콤보가 올라도, 피버 중에도 이 하한은 지킨다.
-//   (3) 라이프 1개일 때는 간격을 더 늘려 여유를 준다.
+//   (2) 게이트 간격(하강 시간)은 콤보에 따라 단계적으로 줄이되 1.4초 하한을 절대 지킨다(피버·콤보 무관).
+//       라이프1·연속 오답 2회 시 한 단계 되돌린다. 간격이 줄면 도로 흐름 속도도 함께 빨라진다.
+//   (3) 라이프 1개일 때는 간격을 한 단계 늘려 여유를 준다.
 //
-// 유령(Ghost): 자기 최고기록의 '게이트별 통과 시각'을 localStorage에 저장·재생한다(반투명 유령 차).
-//   기록이 없으면 기본 페이스의 연습 유령. 앞지르면 짧은 연출, 뒤처져도 비난 표현 금지(§2.5).
-//   AI 상대·'패배' 개념은 없다 — 자기 기록과의 경쟁이다.
+// 연산 모드: 게임 시작(튜토리얼 이후) 시 곱셈/나눗셈을 고른다(런타임 opMode 덮어쓰기).
+//   교사 설정이 특정 연산(곱셈만/나눗셈만)이면 선택 화면을 건너뛰고 그 연산으로 시작한다.
+//   (유령/최고기록 별도 저장은 제거 — 최고 점수는 core scoreManager가 관리한다.)
 //
-// 진행: 총 30개 게이트를 통과하면 완주 → 기록 확정 → 결과 화면. 라이프 3, 오답으로만 깎인다.
+// 진행: 총 30개 게이트를 통과하면 완주 → 결과 화면. 라이프 3, 오답으로만 깎인다.
 //   니어미스: 게이트 도달 직전(0.5초 이내)에 차선을 바꿔 정답 통과.
 //
-// 재미 표준(§2.6): fever(속도감 1.5배·불꽃 골드·점수 2배, 단 게이트 2.5초 하한 유지), comboMilestones,
+// 피버(multi): "N단!" 배수 차선 게이트(간격 1.0초·속도감 2.0배). ⚠️ 정답 차선을 3~4개 연속 고정한 뒤
+//   옆 차선(±1)으로만 전환하고, 전환 직전 게이트에서 빛나는 레인 하이라이트+방향 화살표로 예고한다
+//   (매 게이트 좌우 이동을 강요하지 않아 "달리는" 감각·연속 BOOST가 산다). 세 게이트 중 정답은 항상 1개.
+// 재미 표준(§2.6): fever(속도감 1.5배·불꽃 골드·점수 배수, 단 게이트 1.4초 하한 유지), comboMilestones,
 //   정답 즉시 진행(멈춤 없음), 손맛, L 헬퍼 좌표.
 //
 // ⚠️ 축 분리(§2.1): 이 게임은 문제 난이도 프레이밍(currentLevel 읽기)을 하지 않는다. 게이트 하강 속도·
@@ -42,11 +46,9 @@ import { THEME, font } from '../core/ui.js';
 // ── 상수 ──────────────────────────────────────────────────
 const TRACK = 30; // 총 게이트 수
 const LANES = 3; // 0 좌 / 1 중 / 2 우
-const GHOST_KEY = 'g03_racing.ghost'; // localStorage: { times:[30], total } (storage가 mathArcade. 접두)
-const GHOST_PACE = 3.2; // 연습 유령 페이스(초/게이트). 기록 없을 때만 사용.
 
-const MIN_GATE_SEC = 2.5; // ⚠️ 게이트 하강 시간 하한(계산할 시간). 콤보·피버와 무관하게 지킨다.
-const BASE_GATE_SEC = 3.3; // 콤보0 하강 시간
+const MIN_GATE_SEC = 1.4; // ⚠️ 게이트 하강 시간 하한(계산할 시간). 콤보·피버·배율과 무관하게 절대 지킨다.
+const GATE_TIERS = [2.4, 2.1, 1.8, 1.6, 1.4]; // 콤보 0~4 / 5~9 / 10~14 / 15~19 / 20+ (하한 1.4)
 const LOCK_SEC = 0.4; // 게이트 도달 이 시간 전부터 차선 변경 잠금(판정 확정)
 const NEARMISS_SEC = 0.5; // 도달 직전 이 시간 이내에 차선을 바꿔 정답 → 니어미스
 
@@ -67,7 +69,7 @@ export const g03Race = {
   maxLevel: 4, // 출제 상한 Lv4 (SPEC 2.1 사고형이지만 운전 반응이 섞여 Lv4로 제한)
   blankRatio: 0.25, // 판단형 비율
   opMode: 'mixed',
-  fever: { type: 'easy' }, // easy=피버 중 쉬운 문제형 (§2.6/§7.6)
+  fever: { type: 'multi' }, // multi=피버 중 "N단!" 배수 차선 게이트(간격 단축·속도감 강화) (§2.6/§7.6)
   comboMilestones: { 5: 'FAST!', 10: 'TURBO!', 20: 'NITRO!', 30: 'CHAMPION!' },
 
   tutorial: {
@@ -137,7 +139,6 @@ export const g03Race = {
     this.problem = null;
     this.gate = null; // {values,correctLane,p,sec,locked,judged,judgeLane}
     this.gatesPassed = 0;
-    this.gateTimes = new Array(TRACK).fill(-1); // 게이트별 통과 시각(유령 저장용)
 
     // 입력 상태
     this.touchStartX = null;
@@ -145,11 +146,9 @@ export const g03Race = {
     this.lastLaneChangeAt = -999;
     this.laneChangedThisGate = false;
 
-    // 유령
-    this.ghost = this._loadGhost();
-    this.ghostAhead = this.ghost ? 0 : 0; // 유령이 나보다 앞선 게이트 수(양수=내가 뒤)
-    this.wasBehindGhost = false;
-    this.overtakeT = 0;
+    // 게이트 간격 조정(라이프1은 _gateSec에서, 연속 오답 2회는 slowTier로 한 단계 되돌림)
+    this.consecWrong = 0;
+    this.slowTier = false;
 
     // 연출
     this.boostT = 0;
@@ -163,51 +162,38 @@ export const g03Race = {
     // 완주/피버
     this.finishing = false;
     this.finishTimer = 0;
-    this.finishBest = false;
     this.finishTime = 0;
     this.wasFever = false;
     this.feverBanner = null;
+    this.feverChain = 0; // 피버 중 배수 게이트 연속 통과(×2/×3/MAX BOOST 누적)
+    this.feverZoomT = 0; // 피버 통과 시 짧은 화면 확대(0.08초)
+    // 피버 정답 차선 고정: 한 차선에 3~4개 연속 배치 → 옆 차선(±1)으로 전환(예고 후).
+    this.feverLane = 1; // 현재 배수 게이트가 놓이는 차선
+    this.feverRunLeft = 0; // 이 차선에 남은 게이트 수(0이면 다음 spawn에서 전환)
+    this.feverNextLane = null; // 예고된 다음 정답 차선(전환 직전 게이트에서만 세팅)
 
-    this._spawnGate();
-  },
-
-  // ── 유령 저장/로드 ────────────────────────────────────────
-  _loadGhost() {
-    const g = this.engine.storage.get(GHOST_KEY, null);
-    if (g && Array.isArray(g.times) && g.times.length === TRACK && typeof g.total === 'number') return g;
-    return null;
-  },
-  _saveGhostIfBest(total) {
-    const prev = this.ghost;
-    if (!prev || total < prev.total) {
-      this.engine.storage.set(GHOST_KEY, { times: this.gateTimes.slice(), total });
-      return true;
+    // 연산 모드 선택: 교사 설정이 특정 연산이면 바로 시작, '혼합'이면 선택 화면.
+    const teacher = engine.settings.operation || 'mixed';
+    if (teacher === 'multiply' || teacher === 'divide') {
+      this.runtimeOp = teacher;
+      this.mode = 'play';
+    } else {
+      this.runtimeOp = 'multiply'; // 선택 전 기본값
+      this.mode = 'select';
     }
-    return false;
-  },
-  // 유령이 시각 t까지 통과한 게이트 수(연속·소수). 기록 없으면 연습 페이스.
-  _ghostFloat(t) {
-    const g = this.ghost;
-    if (g && g.times) {
-      const times = g.times;
-      let k = 0;
-      while (k < TRACK && times[k] >= 0 && times[k] <= t) k++;
-      if (k >= TRACK) return TRACK;
-      const prevT = k === 0 ? 0 : times[k - 1];
-      const nextT = times[k];
-      const frac = nextT > prevT ? (t - prevT) / (nextT - prevT) : 0;
-      return k + clamp(frac, 0, 1);
-    }
-    return Math.min(TRACK, t / GHOST_PACE);
-  },
-  _myFloat() {
-    return this.gatesPassed + (this.gate && !this.gate.judged ? clamp(this.gate.p, 0, 1) : 0);
+    if (this.mode === 'play') this._spawnGate();
   },
 
   // ── 게이트 구성 ───────────────────────────────────────────
   _spawnGate() {
     const e = this.engine;
-    this.problem = e.problemGenerator.nextProblem({ maxLevel: this.maxLevel, blankRatio: this.blankRatio, opMode: this.opMode });
+    // 피버(multi): "N단!" 배수 차선 게이트로 전환(1정답 배수 + 2오답 비배수).
+    if (e.fever && e.fever.active && e.fever.type === 'multi') {
+      this._spawnMultiGate();
+      return;
+    }
+    // 런타임 선택 연산(runtimeOp)으로만 출제. 교사 설정이 특정 연산이면 core가 그것을 우선한다.
+    this.problem = e.problemGenerator.nextProblem({ maxLevel: this.maxLevel, blankRatio: this.blankRatio, opMode: this.runtimeOp });
     const combo = e.scoreManager.combo;
     const closeness = clamp(0.3 + combo * 0.03, 0.3, 0.9); // 축 B: 콤보↑ → 근접 오답
     const distractors = e.problemGenerator.makeDistractors(this.problem, LANES - 1, closeness);
@@ -227,14 +213,70 @@ export const g03Race = {
     this.laneChangedThisGate = false;
   },
 
-  // 게이트 하강 시간(초). 콤보로 짧아지되 2.5초 하한(피버 중에도). 라이프1은 여유 추가. 교사 배율 반영.
+  // 옆 차선(한 칸만). lane 1은 무작위 좌/우, 끝 차선은 안쪽으로만 → 급격한 2칸 이동 방지.
+  _adjacentLane(lane) {
+    if (lane <= 0) return 1;
+    if (lane >= LANES - 1) return LANES - 2;
+    return Math.random() < 0.5 ? lane - 1 : lane + 1;
+  },
+
+  // 피버(multi) 배수 게이트: 3차선 중 1개만 fever.dan의 배수, 나머지 2개는 비배수.
+  //   ⚠️ 세 게이트가 전부 정답이 되지 않게 — 오답 2개는 randomTrap(비배수)으로만 채운다.
+  //   ⚠️ 정답 차선은 한 번 정하면 3~4개 연속 유지(feverLane) → "달리는" 감각. 전환은 옆 차선(±1)으로만,
+  //      전환 직전 게이트(feverRunLeft가 0이 되는 게이트)에 다음 차선을 예고(gate.nextLane)한다.
+  _spawnMultiGate() {
+    const fv = this.engine.fever;
+    // 이 차선의 연속 배치가 끝났으면 예고된 옆 차선으로 전환하고 새 구간(3~4개) 시작.
+    if (this.feverRunLeft <= 0) {
+      this.feverLane = this.feverNextLane != null ? this.feverNextLane : this._adjacentLane(this.feverLane);
+      this.feverRunLeft = 3 + Math.floor(Math.random() * 2); // 3~4개
+      this.feverNextLane = null;
+    }
+    const correctLane = this.feverLane;
+    this.feverRunLeft -= 1;
+    // 이 게이트가 구간의 마지막이면 다음 정답 차선을 지금 정해 예고(gate.nextLane).
+    let nextLane = null;
+    if (this.feverRunLeft <= 0) {
+      this.feverNextLane = this._adjacentLane(this.feverLane);
+      nextLane = this.feverNextLane;
+    }
+    const vals = new Array(LANES);
+    const correctVal = fv.randomMultiple();
+    vals[correctLane] = correctVal;
+    const used = new Set([correctVal]);
+    for (let i = 0; i < LANES; i++) {
+      if (i === correctLane) continue;
+      let v;
+      let guard = 0;
+      do {
+        v = fv.randomTrap(); // 비배수 보장 → 정답 차선은 항상 1개뿐
+        guard++;
+      } while (used.has(v) && guard < 40);
+      used.add(v);
+      vals[i] = v;
+    }
+    this.gate = { values: vals, correctLane, p: 0, sec: this._gateSec(), locked: false, judged: false, judgeLane: null, multi: true, fromLane: correctLane, nextLane };
+    this.laneChangedThisGate = false;
+  },
+
+  // 콤보 → 게이트 간격 단계 인덱스(순수 콤보 기준, 조정 전). 속도감 계산에도 쓴다.
+  _comboTier() {
+    const combo = this.engine.scoreManager.combo;
+    return combo < 5 ? 0 : combo < 10 ? 1 : combo < 15 ? 2 : combo < 20 ? 3 : 4;
+  },
+
+  // 게이트 하강 시간(초). 콤보 단계로 단축(2.4→1.4)하되 1.4초 하한을 절대 지킨다(피버·콤보·배율 무관).
+  //   라이프1·연속 오답 2회(slowTier)면 한 단계 되돌린다(간격 늘림). 교사 배율은 늘리는 방향만 유효.
   _gateSec() {
     const e = this.engine;
-    const combo = e.scoreManager.combo;
-    let sec = BASE_GATE_SEC - combo * 0.02;
-    if (sec < MIN_GATE_SEC) sec = MIN_GATE_SEC; // ⚠️ 하한 — 콤보/피버 무관
-    if (e.scoreManager.lives <= 1) sec += 1.2; // 라이프1 완충
-    sec *= e.settings.timeScale || 1; // 교사 제한시간 배율(클수록 여유)
+    // ⚠️ 피버 중엔 간격 1.0초로 단축(배수 판별은 곱셈보다 빠름). 일반 1.4초 하한은 아래에서 유지.
+    if (e.fever && e.fever.active) return 1.0 * (e.settings.timeScale || 1);
+    let ti = this._comboTier();
+    if (e.scoreManager.lives <= 1) ti -= 1; // 라이프1 → 한 단계 되돌림(더 여유)
+    if (this.slowTier) ti -= 1; // 연속 오답 2회 → 한 단계 되돌림
+    ti = clamp(ti, 0, GATE_TIERS.length - 1);
+    let sec = GATE_TIERS[ti] * (e.settings.timeScale || 1);
+    if (sec < MIN_GATE_SEC) sec = MIN_GATE_SEC; // ⚠️ 1.4초 절대 하한
     return sec;
   },
 
@@ -289,13 +331,14 @@ export const g03Race = {
     }
   },
 
-  // 속도감 배수(축 B: 콤보 + 피버). 게이트 하강 시간과는 별개(게이트는 2.5초 하한 유지).
+  // 속도감 배수. ⚠️ 게이트 간격이 짧아질수록 도로 흐름도 함께 빨라진다(간격만 줄고 속도감이 그대로면
+  //   게이트가 촘촘해진 느낌만 난다). 간격 단계(콤보)로 계산 + 점수 세션 가산 + 피버.
   _speedFeel() {
     const e = this.engine;
-    const combo = e.scoreManager.combo;
-    let f = 1 + Math.min(0.8, combo * 0.03);
-    f *= e.scoreManager.speedFactor; // 점수/콤보 세션 가산(공통, 시각 속도감만 — 게이트 2.5초 하한 무관)
-    if (e.fever && e.fever.active) f *= 1.5; // 피버 속도감 1.5배
+    const gateFactor = clamp(GATE_TIERS[0] / GATE_TIERS[this._comboTier()], 1, 1.9); // 2.4/현재간격 (1.0→1.71)
+    let f = gateFactor;
+    f *= e.scoreManager.speedFactor; // 점수/콤보 세션 가산(공통, 시각 속도감만)
+    if (e.fever && e.fever.active) f *= 2.0; // 피버 속도감 2.0배(재조정: 1.5→2.0)
     else if (e.fever) f *= e.fever.speedMultiplier; // 종료 램프 반영
     return f;
   },
@@ -304,15 +347,31 @@ export const g03Race = {
   update(dt) {
     this.time += dt;
 
+    // 연산 모드 선택 화면 동안은 주행 로직 정지(선택 후 시작).
+    if (this.mode === 'select') return;
+
     // 피버 진입/종료 전이(상태는 core, 연출만 게임)
     const fev = this.engine.fever;
     const active = !!(fev && fev.active);
     if (active && !this.wasFever) {
       this.engine.ui.flash('rgba(255,210,120,0.5)', 0.09);
       this.engine.ui.showComboText('🔥 FEVER!', true);
+      if (fev.type === 'multi') {
+        this.feverChain = 0;
+        // 정답 차선을 하나 정해 3~4개 연속 배치(_spawnMultiGate가 feverRunLeft로 관리).
+        this.feverLane = Math.floor(Math.random() * LANES);
+        this.feverRunLeft = 3 + Math.floor(Math.random() * 2);
+        this.feverNextLane = null;
+        this.gate = null;
+        this._spawnGate(); // 배수 차선 게이트로 전환(fever.active=true → _spawnMultiGate)
+      }
     } else if (!active && this.wasFever) {
       this.feverBanner = { points: fev ? fev.pointsEarned : 0, t: 0, dur: 1.4 };
       this.engine.ui.flash('rgba(120,200,255,0.4)', 0.09);
+      if (this.gate && this.gate.multi) {
+        this.gate = null;
+        this._spawnGate(); // 남은 배수 게이트 정리 → 새 문제 게이트(fever.active=false → 일반)
+      }
     }
     this.wasFever = active;
     if (this.feverBanner) {
@@ -340,20 +399,6 @@ export const g03Race = {
     this.carTilt = clamp(this.targetLane - this.laneF, -1, 1) * MAX_TILT * 5; // 이동 중 기울기(수렴하면 0)
     this.carTilt = clamp(this.carTilt, -MAX_TILT, MAX_TILT);
 
-    // 유령 진행 + 추월 판정
-    const gFloat = this._ghostFloat(this.raceElapsed);
-    const myFloat = this._myFloat();
-    this.ghostAhead = gFloat - myFloat; // 양수 = 유령이 앞(내가 뒤)
-    const behind = this.ghostAhead > 0.02;
-    if (!behind && this.wasBehindGhost) {
-      // 뒤처졌다가 앞질렀다 → 짧은 연출(뒤처져도 비난 없음)
-      const cp = this._carPos();
-      this.overtakeT = 0.6;
-      this.engine.particles.emit(cp.x, cp.y - L.gu(1.4), 'sparkle', THEME.gold, 12);
-      this.engine.ui.showComboText('👻 추월!', false);
-    }
-    this.wasBehindGhost = behind;
-
     // 게이트 하강 + 잠금 + 판정
     const g = this.gate;
     if (g && !g.judged) {
@@ -376,7 +421,7 @@ export const g03Race = {
     if (this.boostT > 0) this.boostT = Math.max(0, this.boostT - dt);
     if (this.crashT > 0) this.crashT = Math.max(0, this.crashT - dt);
     if (this.carZoom > 0) this.carZoom = Math.max(0, this.carZoom - dt);
-    if (this.overtakeT > 0) this.overtakeT = Math.max(0, this.overtakeT - dt);
+    if (this.feverZoomT > 0) this.feverZoomT = Math.max(0, this.feverZoomT - dt);
     // 충돌 범퍼 튕김(위로 살짝 튀었다 복귀 — 스핀/파손 아님)
     this.carBounce = this.crashT > 0 ? Math.sin((1 - this.crashT / CRASH_DUR) * Math.PI) * L.gu(0.5) : 0;
     for (let i = this.floats.length - 1; i >= 0; i--) {
@@ -398,11 +443,18 @@ export const g03Race = {
     const correct = lane === g.correctLane;
 
     this.gatesPassed += 1;
-    this.gateTimes[this.gatesPassed - 1] = this.raceElapsed;
     const last = this.gatesPassed >= TRACK;
     const cp = this._carPos();
 
+    // 피버 배수 게이트: 배수 차선=정답(연속 BOOST), 아닌 차선=무해(무적).
+    if (g.multi) {
+      this._judgeMulti(chosen, cp, last);
+      return;
+    }
+
     if (correct) {
+      this.consecWrong = 0;
+      this.slowTier = false; // 정답 → 간격 되돌림 해제
       const combo = e.scoreManager.combo;
       const pts = 100 + combo * 10;
       // 니어미스: 도달 직전(0.5초 이내)에 차선을 바꿔 정답
@@ -415,6 +467,8 @@ export const g03Race = {
       if (last) return this._finish();
       this._spawnGate(); // 멈춤 없이 다음 게이트(≤0.15초는 즉시)
     } else {
+      this.consecWrong += 1;
+      if (this.consecWrong >= 2) this.slowTier = true; // 연속 오답 2회 → 간격 한 단계 되돌림
       this._crash(cp);
       this.gate = null; // 지나친 오답 게이트는 즉시 제거(정지 오버레이가 덮음)
       // 오답: 라이프 -1 + 정답 1.2초 표시(core). 정지 종료 후 다음 진행.
@@ -426,6 +480,54 @@ export const g03Race = {
         },
       });
     }
+  },
+
+  // 피버 배수 게이트 판정: 배수 차선=정답(연속 BOOST 누적), 아닌 차선=무해(라이프·콤보 불변).
+  _judgeMulti(chosen, cp, last) {
+    const e = this.engine;
+    const fv = e.fever;
+    const dan = fv.dan;
+    if (fv.isMultiple(chosen)) {
+      this.feverChain += 1;
+      const boost = this.feverChain >= 4 ? 4 : this.feverChain; // 1/2/3/4(MAX)
+      const q = Math.round(chosen / dan);
+      const prob = { a: dan, b: q, op: '×', answer: chosen, remainder: null, text: `${dan} × ${q}`, blank: null, level: 1 };
+      const pts = (100 + e.scoreManager.combo * 10) * boost; // 연속 보너스 × (core 피버 배수는 자동 곱)
+      e.answerCorrect(prob, chosen, pts); // 점수배수·게이지·정답음·콤보문구 자동(무적)
+      const shown = Math.round(pts * (fv.active ? fv.scoreMultiplier : 1));
+      this._feverBoost(shown, cp, boost);
+    } else {
+      // 아닌 차선 통과 → 무해(무적). 연속 BOOST만 초기화. 세션엔 기록(복습 미등록).
+      this.feverChain = 0;
+      const prob = { a: chosen, b: dan, op: '÷', answer: Math.floor(chosen / dan), remainder: chosen % dan, text: `${chosen} ÷ ${dan}`, blank: null, level: 1 };
+      e.answerWrong(prob, chosen, { affectLevel: false, freeze: false });
+      this.floats.push({ x: cp.x, y: cp.y - L.gu(1.6), text: '아쉽!', color: THEME.subtext, size: L.font(0.032), t: 0, dur: 0.5 });
+      this.engine.particles.emit(cp.x, cp.y - L.gu(0.3), 'pop', '#c9d2e0', 8);
+    }
+    this.gate = null;
+    if (last) return this._finish();
+    this._spawnGate(); // 즉시 다음 배수 게이트(피버 중이면 _spawnMultiGate)
+  },
+
+  // 피버 통과 보상 폭발: 불꽃 3배·게이트 부서짐·점수 여러 개·짧은 화면 확대·연속 BOOST 문구.
+  _feverBoost(shownPts, cp, boost) {
+    const e = this.engine;
+    this.boostT = BOOST_DUR;
+    this.carZoom = 0.16;
+    this.feverZoomT = 0.08; // 화면 확대 0.08초(1.03배)
+    // 점수 여러 개 튀어오름
+    const n = 2 + (Math.random() < 0.5 ? 1 : 0);
+    for (let i = 0; i < n; i++) {
+      this.floats.push({ x: cp.x + (Math.random() - 0.5) * L.gu(3), y: cp.y - L.gu(1.8) - Math.random() * L.gu(1), text: `+${shownPts}`, color: THEME.gold, size: L.font(0.04), t: 0, dur: 0.6 });
+    }
+    // 게이트가 화려하게 부서짐(불꽃 3배 — 기존 16 → 48)
+    e.particles.emit(cp.x, cp.y + L.gu(0.9), 'explode', THEME.gold, 48);
+    e.particles.emit(cp.x, cp.y, 'sparkle', THEME.gold, 30);
+    e.particles.emit(cp.x, cp.y - L.gu(1), 'pop', '#ffe9a8', 20);
+    e.ui.shake(9, SHAKE_TIME);
+    e.sound.play('pop');
+    this._haptic(18);
+    if (boost >= 2) e.ui.showComboText(boost >= 4 ? 'MAX BOOST!' : `×${boost} BOOST!`, boost >= 4);
   },
 
   // 부스터: 뒤쪽 불꽃 파티클 + 속도선 강화 + 짧은 흔들림 + 햅틱 + 부스터음
@@ -457,9 +559,7 @@ export const g03Race = {
 
   _finish() {
     const e = this.engine;
-    const total = this.raceElapsed;
-    this.finishTime = total;
-    this.finishBest = this._saveGhostIfBest(total);
+    this.finishTime = this.raceElapsed;
     this.finishing = true;
     this.finishTimer = FINISH_HOLD;
     this.gate = null;
@@ -467,12 +567,71 @@ export const g03Race = {
     e.particles.emit(cp.x, cp.y - L.gu(1), 'explode', THEME.gold, 36);
     e.particles.emit(L.W / 2, L.y(0.4), 'sparkle', THEME.gold, 24);
     e.ui.flash('rgba(255,220,140,0.4)', 0.1);
-    e.ui.showComboText(this.finishBest ? '🏁 신기록!' : '🏁 완주!', true);
+    e.ui.showComboText('🏁 완주!', true);
     e.sound.play('fanfare');
+  },
+
+  // ── 연산 모드 선택 화면 ───────────────────────────────────
+  _modeButtons() {
+    const w = L.w(0.36); // ≥ L.minTouch
+    const h = L.gu(3.5);
+    const gap = L.gu(1.2);
+    const totalW = w * 2 + gap;
+    const x0 = (L.W - totalW) / 2;
+    const y = L.y(0.52);
+    return [
+      { op: 'multiply', label: '× 곱셈', x: x0, y, w, h, color: THEME.accent },
+      { op: 'divide', label: '÷ 나눗셈', x: x0 + w + gap, y, w, h, color: '#3ec1a0' },
+    ];
+  },
+  _drawModeSelect(ctx) {
+    drawSky(ctx, this);
+    drawGround(ctx, this);
+    drawRoad(ctx, this);
+    drawStripes(ctx, this);
+    const cx = L.W / 2;
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    // 제목 칩
+    const chipW = L.w(0.82);
+    ctx.fillStyle = 'rgba(16,24,40,0.72)';
+    roundRectPath(ctx, cx - chipW / 2, L.y(0.3), chipW, L.gu(3), L.gu(0.5));
+    ctx.fill();
+    ctx.fillStyle = THEME.text;
+    ctx.font = font(L.font(0.058));
+    ctx.fillText('어떤 연산으로 달릴까?', cx, L.y(0.3) + L.gu(1.5));
+    // 버튼
+    for (const b of this._modeButtons()) {
+      roundRectPath(ctx, b.x, b.y, b.w, b.h, L.gu(0.5));
+      ctx.fillStyle = b.color;
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+      ctx.lineWidth = L.gu(0.1);
+      ctx.stroke();
+      ctx.fillStyle = '#fff';
+      ctx.font = font(L.font(0.06));
+      ctx.fillText(b.label, b.x + b.w / 2, b.y + b.h / 2);
+    }
+    ctx.restore();
   },
 
   // ── 입력: 차선 이동(탭 좌/우 절반 · 드래그 · 키보드) ─────
   onTouch(x, y, phase) {
+    // 연산 모드 선택: 버튼 탭 → runtimeOp 덮어쓰고 주행 시작.
+    if (this.mode === 'select') {
+      if (phase !== 'start') return;
+      for (const b of this._modeButtons()) {
+        if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) {
+          this.runtimeOp = b.op;
+          this.mode = 'play';
+          this._spawnGate();
+          this.engine.sound.play('tick');
+          return;
+        }
+      }
+      return;
+    }
     if (this.finishing) return;
     if (phase === 'start') {
       this.touchStartX = x;
@@ -496,6 +655,12 @@ export const g03Race = {
   },
 
   onKey(e) {
+    if (this.mode === 'select') {
+      // 데스크톱: 1/x=곱셈, 2=나눗셈
+      if (e.key === '1' || e.key === 'x' || e.key === 'X') { this.runtimeOp = 'multiply'; this.mode = 'play'; this._spawnGate(); }
+      else if (e.key === '2') { this.runtimeOp = 'divide'; this.mode = 'play'; this._spawnGate(); }
+      return;
+    }
     if (this.finishing) return;
     const k = e.key;
     if (k === 'ArrowLeft' || k === 'a' || k === 'A') this._steer(-1);
@@ -520,21 +685,35 @@ export const g03Race = {
 
   // ── 렌더 ──────────────────────────────────────────────────
   render(ctx) {
+    // 연산 모드 선택 화면
+    if (this.mode === 'select') {
+      this._drawModeSelect(ctx);
+      return;
+    }
     const feel = this._speedFeel();
-    // 배경(하늘·해·먼 언덕·지면) → 좌우 실루엣 → 도로 → 차선선 → 유령 → 게이트 → 속도선 → 내 차
+    // 피버 통과 시 짧은 화면 확대(0.08초, 1.03배) — 씬만 확대(HUD는 고정).
+    const fz = this.feverZoomT > 0 ? 1 + 0.03 * (this.feverZoomT / 0.08) : 1;
+    ctx.save();
+    if (fz !== 1) {
+      ctx.translate(L.W / 2, L.H / 2);
+      ctx.scale(fz, fz);
+      ctx.translate(-L.W / 2, -L.H / 2);
+    }
+    // 배경(하늘·해·먼 언덕·지면) → 좌우 실루엣 → 도로 → 차선선 → 게이트 → 속도선 → 내 차
     drawSky(ctx, this);
     this._drawFeverTint(ctx);
     drawGround(ctx, this);
     for (const o of this.side) drawSideObject(ctx, this, o);
     drawRoad(ctx, this);
     drawStripes(ctx, this);
-    this._drawGhostCar(ctx);
+    this._drawFeverTelegraph(ctx); // 전환 예고 레인 하이라이트(게이트 아래에 깔림)
     if (this.gate && !this.gate.judged) this._drawGate(ctx);
     drawSpeedLines(ctx, this, feel);
     this._drawPlayerCar(ctx);
 
     // 연기 구름(충돌)
     for (const s of this.smoke) drawSmoke(ctx, s);
+    ctx.restore();
 
     // 상단 UI: 피버 게이지 · 문제 · 진행/유령 라벨
     if (this.engine.fever) {
@@ -550,9 +729,31 @@ export const g03Race = {
   },
 
   _drawProblem(ctx) {
+    const cx = L.W / 2;
+    // 피버 배수 게이트: 문제 대신 "N단!"
+    if (this.gate && this.gate.multi && this.engine.fever && this.engine.fever.dan) {
+      ctx.save();
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      const label = `${this.engine.fever.dan}단!`;
+      ctx.font = font(L.font(0.07));
+      const tw = ctx.measureText(label).width;
+      const padX = L.gu(1);
+      const chipY = L.zone.problem - L.gu(1);
+      ctx.fillStyle = 'rgba(16,24,40,0.55)';
+      roundRectPath(ctx, cx - tw / 2 - padX, chipY, tw + padX * 2, L.gu(2), L.gu(0.5));
+      ctx.fill();
+      ctx.fillStyle = THEME.gold;
+      ctx.fillText(label, cx, L.zone.problem);
+      const sub = this.gate.nextLane != null ? '➜ 곧 옆 차선으로!' : '배수 차선으로 통과!';
+      ctx.fillStyle = this.gate.nextLane != null ? THEME.gold : THEME.text;
+      ctx.font = font(L.font(0.026), 'normal');
+      ctx.fillText(sub, cx, L.zone.problem + L.gu(1.6));
+      ctx.restore();
+      return;
+    }
     const p = this.problem;
     if (!p) return;
-    const cx = L.W / 2;
     ctx.save();
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -583,15 +784,56 @@ export const g03Race = {
     ctx.font = font(L.font(0.03), 'normal');
     ctx.textAlign = 'left';
     ctx.fillText(`🏁 ${this.gatesPassed} / ${TRACK}`, L.safe, this._carLineY() + L.gu(2.6));
-    // 유령 격차(뒤처져도 비난 없이 중립적으로)
-    ctx.textAlign = 'right';
-    const ahead = this.ghostAhead;
-    let g;
-    if (Math.abs(ahead) < 0.35) g = '👻 나란히';
-    else if (ahead > 0) g = `👻 ${Math.round(ahead)}칸 앞`;
-    else g = `👻 ${Math.round(-ahead)}칸 뒤`;
-    ctx.fillStyle = ahead <= 0 ? THEME.gold : THEME.subtext;
-    ctx.fillText(g, L.W - L.safe, this._carLineY() + L.gu(2.6));
+    ctx.restore();
+  },
+
+  // 피버 전환 예고: 다음 정답 차선을 도로 위 빛나는 레인 스트립 + 이동 방향 화살표로 미리 알린다.
+  //   ⚠️ 빠른 속도에서 놓치지 않도록: (1) 도로 전체에 깔리는 펄스 하이라이트, (2) 차 옆 큰 방향 화살표.
+  _drawFeverTelegraph(ctx) {
+    const g = this.gate;
+    if (!g || !g.multi || g.nextLane == null) return;
+    const nl = g.nextLane;
+    const pulse = 0.5 + 0.5 * Math.sin(this.time * 9); // 0~1 펄스
+    // (1) 다음 차선 위에 사다리꼴 하이라이트(소실선 → 판정선)
+    const p0 = 0.06;
+    const a = this._proj(p0);
+    const b = this._proj(1);
+    const xaC = this._laneX(nl, p0);
+    const xbC = this._laneX(nl, 1);
+    const wa = a.laneSpacing * 0.42;
+    const wb = b.laneSpacing * 0.42;
+    ctx.save();
+    ctx.globalAlpha = 0.22 + 0.28 * pulse;
+    const grad = ctx.createLinearGradient(0, a.y, 0, b.y);
+    grad.addColorStop(0, 'rgba(255,213,74,0.15)');
+    grad.addColorStop(1, 'rgba(255,213,74,0.9)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.moveTo(xaC - wa, a.y);
+    ctx.lineTo(xaC + wa, a.y);
+    ctx.lineTo(xbC + wb, b.y);
+    ctx.lineTo(xbC - wb, b.y);
+    ctx.closePath();
+    ctx.fill();
+    // (2) 이동 방향 화살표(차 높이, 크게). fromLane→nextLane 부호로 좌/우.
+    const dir = Math.sign(nl - g.fromLane) || 1;
+    const ay = this._carLineY() - L.gu(1.2);
+    const ax = this._laneX(g.fromLane, 1) + dir * L.gu(2.2);
+    const s = L.gu(1.1);
+    ctx.globalAlpha = 0.7 + 0.3 * pulse;
+    ctx.fillStyle = THEME.gold;
+    ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+    ctx.lineWidth = L.gu(0.12);
+    for (let k = 0; k < 2; k++) {
+      const ox = ax + dir * k * s * 0.8;
+      ctx.beginPath();
+      ctx.moveTo(ox, ay - s);
+      ctx.lineTo(ox + dir * s, ay);
+      ctx.lineTo(ox, ay + s);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
     ctx.restore();
   },
 
@@ -621,37 +863,16 @@ export const g03Race = {
     const carH = L.gu(3) * z;
     const fev = this.engine.fever;
     const gold = fev && fev.active;
-    // 부스터 불꽃(차 뒤)
-    if (this.boostT > 0) drawFlame(ctx, cp.x, cp.y + carH * 0.5, carW * 0.5, L.gu(1.6) * (this.boostT / BOOST_DUR), gold ? THEME.gold : '#ff9a3d');
-    drawCar(ctx, cp.x, cp.y, carW, carH, this.carTilt, THEME.wrong, 1);
-    // 추월 문구
-    if (this.overtakeT > 0) {
-      ctx.save();
-      ctx.globalAlpha = this.overtakeT / 0.6;
-      ctx.fillStyle = THEME.gold;
-      ctx.font = font(L.font(0.03));
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText('앞질렀다!', cp.x, cp.y - carH * 0.9);
-      ctx.restore();
+    // 피버: 차체가 앞으로 살짝 기울고(위로 눌린 느낌) 미세 진동 — 속도감 강조.
+    let carY = cp.y;
+    let tilt = this.carTilt;
+    if (gold) {
+      carY += Math.sin(this.time * 42) * L.gu(0.09); // 미세 진동
+      tilt += Math.sin(this.time * 33) * 0.02; // 미세 흔들
     }
-  },
-
-  // 유령 차: 유령이 앞서면 도로 위(멀리, 작게) 반투명으로. 뒤처지면(내가 앞) 표시하지 않는다(카메라 뒤).
-  _drawGhostCar(ctx) {
-    const ahead = this.ghostAhead;
-    if (ahead <= 0.05) return; // 내가 앞 → 유령은 카메라 뒤(라벨로만 안내)
-    const p = clamp(1 - ahead * 0.14, 0.12, 0.9); // 격차 클수록 멀리(위)
-    const pr = this._proj(p);
-    const gx = this._laneX(this.laneF, p); // 대략 같은 차선 앞쪽
-    drawCar(ctx, gx, pr.y, L.w(0.15) * pr.scale, L.gu(3) * pr.scale, 0, '#9fb2d4', 0.5);
-    ctx.save();
-    ctx.globalAlpha = 0.6;
-    ctx.font = font(L.font(0.03) * pr.scale + L.font(0.012));
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('👻', gx, pr.y - L.gu(1.4) * pr.scale);
-    ctx.restore();
+    // 부스터 불꽃(차 뒤). 피버 중엔 더 길게.
+    if (this.boostT > 0) drawFlame(ctx, cp.x, carY + carH * 0.5, carW * (gold ? 0.62 : 0.5), L.gu(gold ? 2.2 : 1.6) * (this.boostT / BOOST_DUR), gold ? THEME.gold : '#ff9a3d');
+    drawCar(ctx, cp.x, carY, carW, carH, tilt, THEME.wrong, 1);
   },
 
   _drawFloats(ctx) {
@@ -678,7 +899,7 @@ export const g03Race = {
     ctx.font = font(L.font(0.09));
     ctx.lineWidth = L.gu(0.25);
     ctx.strokeStyle = 'rgba(0,0,0,0.5)';
-    const title = this.finishBest ? '🏁 신기록!' : '🏁 완주!';
+    const title = '🏁 완주!';
     ctx.strokeText(title, L.W / 2, L.y(0.44));
     ctx.fillText(title, L.W / 2, L.y(0.44));
     ctx.fillStyle = THEME.text;
@@ -961,18 +1182,19 @@ function drawFlame(ctx, x, y, w, hLen, color) {
 
 // 속도선(화면 가장자리). 부스터·피버 강도에 따라 진해진다.
 function drawSpeedLines(ctx, game, feel) {
+  const feverActive = game.engine.fever && game.engine.fever.active;
   const boost = game.boostT > 0 ? game.boostT / BOOST_DUR : 0;
-  const fev = game.engine.fever && game.engine.fever.active ? 0.5 : 0;
+  const fev = feverActive ? 0.85 : 0; // 피버 중 강하게(굵고 길게)
   const inten = Math.max(boost, fev, Math.min(0.35, (feel - 1) * 0.5));
   if (inten <= 0.02) return;
   ctx.save();
   ctx.strokeStyle = `rgba(255,255,255,${(0.5 * inten).toFixed(3)})`;
-  ctx.lineWidth = L.gu(0.12);
-  const n = 5;
+  ctx.lineWidth = L.gu(0.12) * (feverActive ? 1.9 : 1); // 피버 중 굵게
+  const n = feverActive ? 7 : 5;
   for (let i = 0; i < n; i++) {
     const f = (i / n + game.scrollPhase * 2) % 1;
     const y = f * L.H;
-    const len = L.gu(1.5 + inten * 3);
+    const len = L.gu(1.5 + inten * 3) * (feverActive ? 1.6 : 1); // 피버 중 길게
     for (const s of [-1, 1]) {
       const x = s < 0 ? L.gu(0.6) : L.W - L.gu(0.6);
       ctx.beginPath();
