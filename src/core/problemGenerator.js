@@ -3,6 +3,11 @@
 //
 // 설계 원칙(SPEC 2.1): "수학 난이도(level)" 축은 오직 여기서만 관리한다.
 //   게임 로직은 level 값을 읽지 않는다. 게임은 nextProblem({maxLevel})만 호출한다.
+//
+// ⚠️ 레벨 사다리 아케이드 재조정: 세 자리×한 자리(213×5)와 올림 있는 두 자리 곱셈(47×7)을 전 레벨에서
+//   제거했다. 이들은 필산으로 푸는 수준이라 아케이드의 3초 암산 속도에 맞지 않는다(실기 확인 후 조정).
+//   상한은 '몇십 × 몇'(20×6 = 구구단의 확장, 암산 가능)과 '두 자리 × 한 자리 올림 없음'(21×3)까지.
+//   나눗셈은 구구단 역산 → 몇십몇÷몇(나누어떨어짐) → 나머지 있는 나눗셈 순. (SPEC §2.1 표 참조)
 
 // 정수 난수 유틸
 function ri(min, max) {
@@ -165,7 +170,7 @@ export class ProblemGenerator {
   generateForLevel(level, blankRatio = 0.25, opMode = 'mixed') {
     const teacher = this.settings.operation || 'mixed';
     const mode = teacher !== 'mixed' ? teacher : opMode || 'mixed';
-    if (mode === 'multiply') return this.genMultiplyOnly(level);
+    if (mode === 'multiply') return this.genMultiplyOnly(level, blankRatio);
     if (mode === 'divide') return this.genDivideOnly(level, blankRatio);
     return this.genMixed(level, blankRatio);
   }
@@ -179,19 +184,23 @@ export class ProblemGenerator {
     return dans;
   }
 
-  // ── 곱셈만 모드 사다리 ───────────────────────────────────
-  genMultiplyOnly(level) {
+  // ── 곱셈만 모드 사다리 (아케이드 재조정) ─────────────────
+  genMultiplyOnly(level, blankRatio = 0.25) {
     switch (level) {
       case 1:
         return this.mkGugudan([2, 3, 4, 5], 1); // 곱셈구구 2~5단
       case 2:
         return this.mkGugudan([6, 7, 8, 9], 2); // 곱셈구구 6~9단
-      case 3:
-        return this.mkTwoByOne(false, 3); // 두 자리×한 자리 올림 없음 (21×3)
+      case 3: {
+        // 빈칸 역산(□×7=42) + 구구단 혼합
+        const base = this.mkDivGugudan([2, 3, 4, 5, 6, 7, 8, 9], 3); // 역산 소스(몫≥3)
+        if (blankRatio > 0 && Math.random() < blankRatio) return this.toBlankTimes(base);
+        return this.mkGugudan([2, 3, 4, 5, 6, 7, 8, 9], 3); // 구구단 혼합
+      }
       case 4:
-        return this.mkTwoByOne(true, 4); // 두 자리×한 자리 올림 있음 (47×2)
+        return this.mkTensByOne(4); // 몇십 × 몇 (20×6, 40×7)
       default:
-        return this.mkThreeByOne(5); // 세 자리×한 자리
+        return this.mkTwoByOneNoCarry(5); // 두 자리 × 한 자리 올림 없음 (21×3, 32×2)
     }
   }
 
@@ -234,11 +243,11 @@ export class ProblemGenerator {
         return base;
       }
       case 4:
-        // 두 자리×한 자리(올림 포함) 또는 두 자리÷한 자리(나누어떨어짐)
-        return Math.random() < 0.5 ? this.mkTwoByOne(true, 4) : this.mkTwoDivOne(false, 4);
+        // 몇십 × 몇(20×6) 또는 몇십몇 ÷ 몇 나누어떨어짐(60÷5)
+        return Math.random() < 0.5 ? this.mkTensByOne(4) : this.mkTwoDivOne(false, 4);
       default:
-        // 세 자리×한 자리 또는 나머지 있는 나눗셈
-        return Math.random() < 0.5 ? this.mkThreeByOne(5) : this.mkTwoDivOne(true, 5);
+        // 두 자리 × 한 자리 올림 없음(21×3) 또는 나머지 있는 나눗셈(17÷5)
+        return Math.random() < 0.5 ? this.mkTwoByOneNoCarry(5) : this.mkTwoDivOne(true, 5);
     }
   }
 
@@ -249,24 +258,28 @@ export class ProblemGenerator {
     return mkProblem(a, b, '×', a * b, null, level);
   }
 
-  // 두 자리 × 한 자리. carry=올림 발생 여부 지정.
-  mkTwoByOne(carry, level) {
-    let a = 23,
+  // 두 자리 × 한 자리, 올림 없음 보장(각 자리 곱 < 10). 3학년 암산 상한(필산 아님).
+  //   ⚠️ 세 자리×한 자리, 올림 있는 두 자리 곱셈은 이 게임에서 출제하지 않는다(아케이드 속도에 부적합).
+  mkTwoByOneNoCarry(level) {
+    let a = 21,
       b = 3,
       guard = 0;
     do {
-      a = ri(11, 99);
       b = ri(2, 9);
+      const maxDigit = Math.floor(9 / b); // 각 자리 최대(그 자리 곱 < 10)
+      const tens = ri(1, maxDigit);
+      const ones = ri(0, maxDigit);
+      a = tens * 10 + ones; // 항상 두 자리(11~), 각 자리 곱 <10 → 올림 없음
       guard++;
-    } while (hasCarry(a, b) !== carry && guard < 80);
+    } while (a % 10 === 0 && guard < 24); // 되도록 '몇십몇'(끝자리≠0) — 몇십은 Lv4와 겹쳐 회피
     return mkProblem(a, b, '×', a * b, null, level);
   }
 
-  mkThreeByOne(level) {
-    // 백의 자리를 1~4로 제한 (규칙3). 553×8 같은 큰 수 금지.
-    const a = ri(1, 4) * 100 + ri(0, 99); // 100~499
-    const b = ri(2, 9);
-    return mkProblem(a, b, '×', a * b, null, level);
+  // 몇십 × 몇 (20×6, 40×7, 90×9). 구구단의 확장이라 암산 가능(2×6=12 → 20×6=120).
+  mkTensByOne(level) {
+    const tens = ri(2, 9) * 10; // 20~90 (몇십)
+    const b = ri(2, 9); // ×1 자명값 금지
+    return mkProblem(tens, b, '×', tens * b, null, level);
   }
 
   // 구구단 역산 나눗셈 (나누어떨어짐). range=제수 범위.
@@ -327,7 +340,8 @@ export class ProblemGenerator {
     const lowLevel = (problem.level || 1) <= 2;
     const nDigits = digitCount(answer);
 
-    // 세 자리 이상 곱셈: 올림 실수 위주 전용 전략(자릿수 일치로 마무리). 나눗셈 몫은 두 자리 이하뿐이다.
+    // 답이 세 자리 이상인 곱셈(몇십 × 몇, 예: 40×7=280, 90×9=810): 자릿수 실수 위주 전용 전략
+    //   (자릿수 일치로 마무리). ⚠️ 세 자리×한 자리 문제 자체는 이제 출제하지 않고, 몇십×몇의 답만 3자리가 된다.
     if (!isDiv && nDigits >= 3) {
       return this._finalizeSameDigits(this._bigProductCandidates(problem), answer, count);
     }
@@ -382,18 +396,18 @@ export class ProblemGenerator {
     return result.slice(0, count);
   }
 
-  // 답이 세 자리 이상인 곱셈 오답 후보: 올림 관련 실수 위주. (±1,±2·자릿수 뒤집기는 넣지 않는다)
+  // 답이 세 자리 이상인 곱셈(몇십 × 몇) 오답 후보: 자릿수/십의 실수 위주. (±1,±2·자릿수 뒤집기는 넣지 않는다)
   _bigProductCandidates(problem) {
     const { a, b, answer } = problem;
     const cands = new Set();
 
-    // 올림 누락: 일의 자리에서 올려야 할 값을 빼먹음 (47×7=329 → 289)
+    // 십의 자리 곱 실수: 일의 자리에서 올려야 할 값을 빼먹음 (몇십×몇은 끝자리 0이라 대개 0)
     const onesCarry = Math.floor(((a % 10) * b) / 10);
     if (onesCarry > 0) cands.add(answer - onesCarry * 10);
-    // 올림 오류: 올림을 잘못 더함 (329 → 349)
+    // 십 단위 실수 (280 → 290, 300)
     cands.add(answer + 10);
     cands.add(answer + 20);
-    // 한 자리 오답: a의 한 자리를 ±1로 잘못 계산 (47×7을 37×7로 등)
+    // 한 자리 오답: a의 한 자리를 ±1로 잘못 계산 (40×7을 30×7·50×7로 등)
     const digits = String(Math.abs(a)).length;
     for (let k = 0; k < digits; k++) {
       const place = Math.pow(10, k);
@@ -439,14 +453,6 @@ export class ProblemGenerator {
 // ── 헬퍼 ───────────────────────────────────────────────────
 function clamp(v, lo, hi) {
   return Math.max(lo, Math.min(hi, v));
-}
-
-function hasCarry(a, b) {
-  // a(두 자리) × b(한 자리)에서 올림이 발생하는지 (일의 자리 곱이 10 이상)
-  const ones = a % 10;
-  if (ones * b >= 10) return true;
-  const tens = Math.floor(a / 10) % 10;
-  return tens * b >= 10;
 }
 
 function reverseDigits(n) {
