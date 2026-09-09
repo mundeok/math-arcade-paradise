@@ -3,6 +3,8 @@
 
 import { LOGICAL_W, LOGICAL_H, SAFE, THEME, font, roundRect, hit } from '../core/ui.js';
 import { oneLineEquation } from '../core/mathText.js';
+import * as ranking from '../core/ranking.js';
+import { promptNickname } from '../core/overlayInput.js';
 
 export const resultScene = {
   enter(engine) {
@@ -27,6 +29,61 @@ export const resultScene = {
       label: '🏠 메뉴로',
     };
     this.hoverPt = null;
+
+    // ── 온라인 랭킹 등록 훅 (SPEC §랭킹) — 게임 파일은 건드리지 않고 결과 화면에서만 호출 ──
+    this.rankBtn = { x: SAFE, y: this.retryBtn.y - 128, w: LOGICAL_W - SAFE * 2, h: 106 };
+    this.rankStatus = 'checking'; // 'checking'|'canRank'|'no'|'offline'
+    this.submitted = false;
+    this.submitting = false;
+    this.myRank = 0;
+    // 플레이 시간(부정 방지용) — 세션 기록 타임스탬프에서 도출.
+    const ts = engine.session.current.map((x) => x.timestamp);
+    this.playSeconds = ts.length > 1 ? (Math.max(...ts) - Math.min(...ts)) / 1000 : 0;
+    this._checkRank();
+  },
+
+  async _checkRank() {
+    const e = this.engine;
+    const score = e.scoreManager.score;
+    if (score <= 0) {
+      this.rankStatus = 'no';
+      return;
+    }
+    const res = await ranking.fetchTop(this.game.id);
+    if (!this.engine || this.engine.scene !== this) return; // 화면 이탈 시 폐기
+    if (res.offline) this.rankStatus = 'offline';
+    else this.rankStatus = ranking.qualifies(res.entries, score) ? 'canRank' : 'no';
+  },
+
+  async _register() {
+    const e = this.engine;
+    const nick = await promptNickname(ranking.getSavedNick());
+    if (nick == null) return; // 취소
+    ranking.saveNick(nick);
+    this.submitting = true;
+    const sm = e.scoreManager;
+    const r = await ranking.submit(this.game.id, nick, {
+      score: sm.score,
+      maxCombo: sm.maxCombo,
+      accuracy: Math.round((sm.accuracy || 0) * 100),
+      playSeconds: this.playSeconds,
+    });
+    this.submitting = false;
+    if (!this.engine || this.engine.scene !== this) return;
+    if (r.ok) {
+      this.submitted = true;
+      this.myRank = r.rank;
+      e.ui.showComboText(`🏆 ${r.rank}위!`, true);
+    } else {
+      const msg = {
+        not_top: '아쉽! 순위 밖이에요',
+        too_soon: '잠시 후 다시 시도해요',
+        impossible_score: '점수를 확인할 수 없어요',
+        offline: '인터넷 연결을 확인해주세요',
+        nick: '다른 이름을 써주세요',
+      }[r.reason] || '등록에 실패했어요';
+      e.ui.showComboText(msg, false);
+    }
   },
 
   update() {},
@@ -76,7 +133,7 @@ export const resultScene = {
     ctx.fillText('📒 틀린 문제 다시보기', SAFE, 570);
 
     const listTop = 610;
-    const listH = this.retryBtn.y - listTop - 20;
+    const listH = this.rankBtn.y - 40 - listTop; // 랭킹 버튼/상태줄 자리를 남긴다
     roundRect(ctx, SAFE, listTop, LOGICAL_W - SAFE * 2, listH, 20);
     ctx.fillStyle = 'rgba(255,255,255,0.05)';
     ctx.fill();
@@ -103,6 +160,9 @@ export const resultScene = {
       }
     }
 
+    // 랭킹 등록/보기
+    this._drawRank(ctx);
+
     // 버튼
     ctx.textAlign = 'center';
     for (const b of [this.retryBtn, this.menuBtn]) {
@@ -119,8 +179,54 @@ export const resultScene = {
     }
   },
 
+  // 랭킹 상태줄 + 버튼(등록 가능하면 등록, 아니면 보기).
+  _drawRank(ctx) {
+    const b = this.rankBtn;
+    const cx = LOGICAL_W / 2;
+    let status = '';
+    let label = '🏅 랭킹 보기';
+    let color = THEME.panel;
+    if (this.rankStatus === 'checking') {
+      status = '랭킹 확인 중…';
+    } else if (this.submitted) {
+      status = `🎉 ${this.myRank}위에 등록됐어요!`;
+    } else if (this.rankStatus === 'canRank') {
+      status = '🏆 TOP 100에 들었어요!';
+      label = this.submitting ? '등록 중…' : '🏆 랭킹에 등록하기!';
+      color = THEME.correct;
+    } else if (this.rankStatus === 'offline') {
+      status = '오프라인 — 로컬 기록만 볼 수 있어요';
+    }
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    if (status) {
+      ctx.fillStyle = THEME.gold;
+      ctx.font = font(30);
+      ctx.fillText(status, cx, b.y - 24);
+    }
+    roundRect(ctx, b.x, b.y, b.w, b.h, 24);
+    ctx.fillStyle = color;
+    ctx.fill();
+    if (this.hoverPt && hit(b, this.hoverPt.x, this.hoverPt.y)) {
+      ctx.fillStyle = 'rgba(255,255,255,0.12)';
+      ctx.fill();
+    }
+    ctx.fillStyle = '#fff';
+    ctx.font = font(40);
+    ctx.fillText(label, b.x + b.w / 2, b.y + b.h / 2);
+  },
+
   onTouch(x, y, phase) {
     if (phase !== 'end') return;
+    if (hit(this.rankBtn, x, y)) {
+      if (this.rankStatus === 'canRank' && !this.submitted && !this.submitting) {
+        this._register();
+      } else {
+        this.engine._rankGameId = this.game.id;
+        this.engine.setState('RANKING');
+      }
+      return;
+    }
     if (hit(this.retryBtn, x, y)) {
       this.engine.startGame(this.game); // 같은 게임 다시 시작
       return;
@@ -132,7 +238,7 @@ export const resultScene = {
 
   onHover(x, y) {
     this.hoverPt = { x, y };
-    return hit(this.retryBtn, x, y) || hit(this.menuBtn, x, y);
+    return hit(this.retryBtn, x, y) || hit(this.menuBtn, x, y) || hit(this.rankBtn, x, y);
   },
   clearHover() {
     this.hoverPt = null;

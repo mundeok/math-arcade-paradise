@@ -1,0 +1,40 @@
+rules_version = '2';
+
+// 곱셈나눗셈 아케이드 천국 — 온라인 랭킹 Firestore 보안 규칙
+// Firebase 콘솔 → Firestore Database → 규칙(Rules) 탭에 이 내용을 붙여넣고 '게시'한다.
+//
+// 데이터 구조: 게임당 문서 1개  rankings/{gameId} = { entries: [ {id,nick,score,maxCombo,accuracy,date,reported}, … 최대 100 ] }
+//   (읽기 1번으로 TOP 100 조회 = 무료 티어 최적화. 대신 아래 '한계'가 생긴다.)
+//
+// ✅ 이 규칙이 강제하는 것(실제 방어선):
+//   - 읽기: 누구나(공개 랭킹).
+//   - 쓰기(생성/수정): 최상위 필드는 entries 하나뿐(임의 필드 주입 차단) + entries는 리스트 + 길이 ≤ 100
+//     (문서 비대화·스팸 차단).
+//   - 문서 삭제(delete): 금지. 개별 항목 삭제도 '배열 갱신(update)'으로만 이뤄지게 강제(관리자 삭제 포함).
+//
+// ⚠️ 이 구조로는 규칙이 강제할 수 없는 것(Firestore 규칙은 배열 원소를 순회 검증할 수 없다):
+//   - 항목별 필드 타입·범위(점수는 숫자, 닉네임 2~6자 등)  → 클라이언트(ranking.js + nicknameFilter.js)에서 검증(우회 가능).
+//   - 신고 카운트 '증가만 허용/감소 금지'                  → 배열 원소 비교 불가라 규칙으로 못 막는다(클라 처리).
+//   이는 '1문서=100배열'(읽기 1회) 최적화의 트레이드오프다. 더 엄격히 규칙으로 막으려면 항목을
+//   개별 문서(subcollection)로 저장해야 하는데, 그러면 TOP 100 조회가 최대 100읽기가 되어 무료 티어
+//   읽기 소모가 커진다. 현재는 읽기 최적화를 택하고 부족분은 신고·관리자 삭제(§랭킹 4)로 보완한다.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    match /rankings/{gameId} {
+      allow read: if true;
+
+      allow create, update: if request.resource.data.keys().hasOnly(['entries'])
+                            && request.resource.data.entries is list
+                            && request.resource.data.entries.size() <= 100;
+
+      allow delete: if false; // 문서 통째 삭제 금지 — 항목 삭제는 update(배열 교체)로만
+    }
+
+    // 그 외 모든 경로 기본 차단
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

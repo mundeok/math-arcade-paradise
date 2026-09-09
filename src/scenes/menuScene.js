@@ -51,8 +51,11 @@ export const menuScene = {
       };
     });
 
-    // 하단 리포트 버튼
-    this.reportBtn = { x: SAFE, y: LOGICAL_H - SAFE - 96, w: LOGICAL_W - SAFE * 2, h: 96, label: '📊 학습 리포트' };
+    // 하단 버튼: 리포트(좌) + 랭킹(우)
+    const bw = (LOGICAL_W - SAFE * 2 - 20) / 2;
+    const by = LOGICAL_H - SAFE - 96;
+    this.reportBtn = { x: SAFE, y: by, w: bw, h: 96, label: '📊 학습 리포트' };
+    this.rankBtn = { x: SAFE + bw + 20, y: by, w: bw, h: 96, label: '🏆 랭킹' };
 
     // 우측 상단 설정 기어
     this.gearRect = { x: LOGICAL_W - SAFE - 96, y: SAFE, w: 96, h: 96 };
@@ -128,18 +131,19 @@ export const menuScene = {
       this._drawOpBadge(ctx, c);
     }
 
-    // 리포트 버튼
-    const r = this.reportBtn;
-    roundRect(ctx, r.x, r.y, r.w, r.h, 20);
-    ctx.fillStyle = THEME.panel;
-    ctx.fill();
-    if (this._hovered(r)) {
-      ctx.fillStyle = 'rgba(255,255,255,0.12)';
+    // 하단 버튼(리포트 + 랭킹)
+    for (const r of [this.reportBtn, this.rankBtn]) {
+      roundRect(ctx, r.x, r.y, r.w, r.h, 20);
+      ctx.fillStyle = r === this.rankBtn ? THEME.accent : THEME.panel;
       ctx.fill();
+      if (this._hovered(r)) {
+        ctx.fillStyle = 'rgba(255,255,255,0.12)';
+        ctx.fill();
+      }
+      ctx.fillStyle = '#fff';
+      ctx.font = font(36);
+      ctx.fillText(r.label, r.x + r.w / 2, r.y + r.h / 2);
     }
-    ctx.fillStyle = '#fff';
-    ctx.font = font(38);
-    ctx.fillText(r.label, r.x + r.w / 2, r.y + r.h / 2);
   },
 
   // 연산 배지: 셀 우측 상단에 × 또는 ÷ 칩. mixed/미지정·비활성 셀은 표시하지 않는다.
@@ -241,6 +245,12 @@ export const menuScene = {
         e.setState('REPORT');
         return;
       }
+      // 랭킹
+      if (hit(this.rankBtn, x, y)) {
+        e._rankGameId = null;
+        e.setState('RANKING');
+        return;
+      }
     }
   },
 
@@ -249,6 +259,7 @@ export const menuScene = {
     this.hoverPt = { x, y };
     if (hit(this.gearRect, x, y)) return true;
     if (hit(this.reportBtn, x, y)) return true;
+    if (hit(this.rankBtn, x, y)) return true;
     for (const c of this.cells) if (c.active && hit(c, x, y)) return true;
     return false;
   },

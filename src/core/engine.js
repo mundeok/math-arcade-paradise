@@ -20,6 +20,8 @@ export const STATE = {
   RESULT: 'RESULT',
   SETTINGS: 'SETTINGS',
   REPORT: 'REPORT',
+  RANKING: 'RANKING', // 온라인 랭킹 화면(SPEC §랭킹)
+  ADMIN: 'ADMIN', // 관리자 화면(?admin=1 진입, 메뉴 미노출)
   ORIENTATION_WARNING: 'ORIENTATION_WARNING',
 };
 
@@ -703,6 +705,8 @@ function stateToSceneKey(state) {
     [STATE.RESULT]: 'result',
     [STATE.SETTINGS]: 'settings',
     [STATE.REPORT]: 'report',
+    [STATE.RANKING]: 'ranking',
+    [STATE.ADMIN]: 'admin',
   }[state];
 }
 
