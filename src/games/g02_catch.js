@@ -17,6 +17,7 @@
 
 import { L } from '../core/layout.js';
 import { THEME, font } from '../core/ui.js';
+import { drawJellySurface, drawPlayBackdrop, drawRewardText } from '../art/toyArt.js';
 
 // ── 시간 상수(초). 정답 연출은 흐름을 멈추지 않는다(§2.6 상한 준수). ──
 const HITSTOP = 0.05; // 순간 정지(0.03~0.06)
@@ -260,6 +261,7 @@ export const g02Catch = {
 
   onTouch(x, y, phase) {
     if (phase !== 'start') return;
+    if (y < L.zone.problem + L.gu(2.8)) return; // 가려진 문제 영역의 물체는 탭하지 않는다.
     if (!this.multiMode && this.time < this.inputLockUntil) return; // 판정 후 100ms 중복(일반 모드만)
     if (!this.fallers.length) return;
 
@@ -434,6 +436,7 @@ export const g02Catch = {
   },
 
   render(ctx) {
+    drawPlayBackdrop(ctx, this.id, this.time || 0);
     this._drawFeverBg(ctx);
     if (this.engine.fever) {
       const h = L.gu(0.5);
@@ -450,10 +453,15 @@ export const g02Catch = {
       ctx.translate(-cx, -cy);
     }
     this._drawProblem(ctx);
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, L.zone.problem + L.gu(2.8), L.W, L.H);
+    ctx.clip();
     this._drawFallers(ctx);
     this._drawPopEffects(ctx);
     this._drawFloats(ctx);
     this._drawMiss(ctx);
+    ctx.restore();
     ctx.restore();
 
     this._drawFeverBanner(ctx);
@@ -491,13 +499,7 @@ export const g02Catch = {
       if (f.judged) continue;
       if (f.y < -this.R) continue;
       const r = this._visR(f);
-      ctx.beginPath();
-      ctx.arc(f.x, f.y, r, 0, Math.PI * 2);
-      ctx.fillStyle = THEME.accent;
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(255,255,255,0.35)';
-      ctx.lineWidth = L.gu(0.12);
-      ctx.stroke();
+      drawJellySurface(ctx, f.x, f.y, r);
       ctx.fillStyle = '#fff';
       ctx.font = font(L.font(0.05));
       ctx.fillText(String(f.value), f.x, f.y);
@@ -510,6 +512,12 @@ export const g02Catch = {
       const scale = prog < 0.3 ? 1 + 0.3 * (prog / 0.3) : 1.3 * (1 - (prog - 0.3) / 0.7);
       ctx.save();
       ctx.globalAlpha = Math.max(0, 1 - prog);
+      // 잡힌 공은 먼저 납작해졌다가 작아진다. 숫자는 즉시 다음 문제와 분리된다.
+      const squeeze = prog < 0.3 ? prog / 0.3 : Math.max(0, 1 - prog);
+      ctx.beginPath();
+      ctx.ellipse(p.x, p.y, this.R * (1 + squeeze * 0.2) * (1 - prog), this.R * (1 - squeeze * 0.35) * (1 - prog), 0, 0, Math.PI * 2);
+      ctx.fillStyle = THEME.correct;
+      ctx.fill();
       ctx.beginPath();
       ctx.arc(p.x, p.y, this.R * Math.max(0.01, scale), 0, Math.PI * 2);
       ctx.strokeStyle = THEME.correct;
@@ -536,7 +544,7 @@ export const g02Catch = {
       ctx.font = font(t.size);
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(t.text, t.x, t.y - prog * L.gu(2.2));
+      drawRewardText(ctx, t.text, t.x, t.y - prog * L.gu(2.2));
       ctx.restore();
     }
   },

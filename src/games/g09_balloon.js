@@ -30,6 +30,7 @@
 
 import { L } from '../core/layout.js';
 import { THEME, font } from '../core/ui.js';
+import { drawPlayBackdrop, drawRewardText } from '../art/toyArt.js';
 
 // 시간(초) 상수 — 좌표가 아니므로 L 대상이 아니다.
 const BASE_RISE_SEC = 6.0; // 콤보 0에서 부양 영역을 지나는 데 걸리는 시간
@@ -267,7 +268,7 @@ export const g09Balloon = {
       const prob = { a: dan, b: q, op: '×', answer: target.value, remainder: null, level: 1, text: `${dan} × ${q}`, blank: null };
       const base = 70 + e.scoreManager.combo * 8;
       e.answerCorrect(prob, target.value, base); // 점수배수·게이지·정답음·연출 자동(피버 무적)
-      this.popEffects.push({ x: target.x, y: target.y, label: target.label, t: 0, dur: 0.6 });
+      this.popEffects.push({ x: target.x, y: target.y, label: target.label, t: 0, dur: 0.45 });
       e.particles.emit(target.x, target.y, 'explode', THEME.correct, 20);
       e.particles.emit(target.x, target.y, 'sparkle', target.hue, 10);
       e.sound.play('pop');
@@ -351,6 +352,7 @@ export const g09Balloon = {
   },
 
   render(ctx) {
+    drawPlayBackdrop(ctx, this.id, this.time || 0);
     const cx = L.W / 2;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -383,7 +385,7 @@ export const g09Balloon = {
       if (this.problem.fromReview) {
         ctx.fillStyle = THEME.gold;
         ctx.font = font(L.font(0.028));
-        ctx.fillText('🔁 다시 도전!', cx, L.zone.problem + L.gu(4.1));
+        drawRewardText(ctx, '🔁 다시 도전!', cx, L.zone.problem + L.gu(4.1));
       }
     }
 
@@ -401,9 +403,19 @@ export const g09Balloon = {
       const y = p.y - prog * L.gu(4);
       ctx.save();
       ctx.globalAlpha = Math.max(0, 1 - prog);
+      // 풍선 껍질이 사방으로 벌어지는 곡선. 공을 받는 연출과 다른 '팡'의 모양.
+      ctx.strokeStyle = THEME.gold;
+      ctx.lineWidth = L.gu(0.1) * (1 - prog);
+      for (let i = 0; i < 6; i++) {
+        const angle = i * Math.PI / 3;
+        const radius = this.rx * (0.6 + prog * 0.9);
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, radius, angle, angle + 0.35 * (1 - prog));
+        ctx.stroke();
+      }
       ctx.fillStyle = THEME.correct;
       ctx.font = font(L.font(0.045));
-      ctx.fillText(p.label, p.x, y);
+      drawRewardText(ctx, p.label, p.x, y);
       ctx.font = font(L.font(0.032));
       ctx.fillText('⭕', p.x + L.gu(1.4), y - L.gu(1.1));
       ctx.restore();
@@ -419,7 +431,7 @@ export const g09Balloon = {
       ctx.font = font(L.font(0.05));
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText('앗!', m.x, m.y - prog * L.gu(1.5));
+      drawRewardText(ctx, '앗!', m.x, m.y - prog * L.gu(1.5));
       ctx.restore();
     }
 
@@ -543,7 +555,7 @@ export const g09Balloon = {
       const popPts = Math.round((70 + e.scoreManager.combo * 8) * fmult);
       e.scoreManager.addPoints(popPts);
       if (e.fever) e.fever.addPoints(popPts);
-      this.popEffects.push({ x: target.x, y: target.y, label: target.label, t: 0, dur: 0.6 });
+      this.popEffects.push({ x: target.x, y: target.y, label: target.label, t: 0, dur: 0.45 });
 
       // 파티클(연쇄 누적 — 상한 200은 core가 관리). 색은 풍선 색 기반.
       const chainBonus = Math.min(30, this.chain * 4);
@@ -681,19 +693,26 @@ function drawBalloon(ctx, x, y, rx, ry, hue, label, fontPx) {
   ctx.lineWidth = Math.max(2, rx * 0.04);
   ctx.beginPath();
   ctx.moveTo(x, y + ry);
-  ctx.lineTo(x, y + ry + ry * 0.7);
+  ctx.bezierCurveTo(x - rx * 0.2, y + ry * 1.25, x + rx * 0.2, y + ry * 1.45, x, y + ry * 1.7);
   ctx.stroke();
   // 몸통(타원)
   ctx.beginPath();
   ctx.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2);
   ctx.fillStyle = hue;
   ctx.fill();
+  // 반투명 라텍스의 둥근 음영. 원래 장식 색상·정오답 규칙은 그대로다.
+  const sheen = ctx.createRadialGradient(x - rx * 0.3, y - ry * 0.45, rx * 0.08, x, y, ry * 1.1);
+  sheen.addColorStop(0, 'rgba(255,255,255,0.38)');
+  sheen.addColorStop(0.38, 'rgba(255,255,255,0)');
+  sheen.addColorStop(1, 'rgba(31,24,57,0.48)');
+  ctx.fillStyle = sheen;
+  ctx.fill();
   ctx.strokeStyle = 'rgba(255,255,255,0.4)';
   ctx.lineWidth = Math.max(3, rx * 0.06);
   ctx.stroke();
   // 하이라이트
   ctx.beginPath();
-  ctx.ellipse(x - rx * 0.32, y - ry * 0.36, rx * 0.18, ry * 0.24, -0.4, 0, Math.PI * 2);
+  ctx.ellipse(x - rx * 0.39, y - ry * 0.57, rx * 0.14, ry * 0.16, -0.4, 0, Math.PI * 2);
   ctx.fillStyle = 'rgba(255,255,255,0.4)';
   ctx.fill();
   // 매듭
@@ -705,10 +724,23 @@ function drawBalloon(ctx, x, y, rx, ry, hue, label, fontPx) {
   ctx.fillStyle = hue;
   ctx.fill();
   // 라벨
+  // 작은 표정은 숫자 아래쪽에만. 모든 풍선에 동일하게 적용한다.
+  ctx.fillStyle = '#384963';
+  for (const side of [-1, 1]) {
+    ctx.beginPath();
+    ctx.ellipse(x + side * rx * 0.16, y + ry * 0.64, rx * 0.028, ry * 0.036, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.beginPath();ctx.arc(x, y + ry * 0.68, rx * 0.065, 0, Math.PI);
+  ctx.strokeStyle = '#384963';ctx.lineWidth = rx * 0.022;ctx.stroke();
   ctx.fillStyle = '#fff';
   ctx.font = font(fontPx);
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
+  ctx.strokeStyle = 'rgba(31,24,57,0.5)';
+  ctx.lineWidth = rx * 0.045;
+  ctx.lineJoin = 'round';
+  ctx.strokeText(label, x, y);
   ctx.fillText(label, x, y);
   ctx.restore();
 }

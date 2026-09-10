@@ -13,6 +13,7 @@
 
 import { L } from '../core/layout.js';
 import { THEME, font, roundRect, hit } from '../core/ui.js';
+import { drawTileGleam, drawPlayBackdrop } from '../art/toyArt.js';
 
 const CORRECT_ANIM = 0.15; // 정답 연출(흐름 멈추지 않음, ≤0.15초)
 const WRONG_ANIM = 0.45; // 오답 버튼 피드백 후 core 정답표시 오버레이
@@ -202,6 +203,7 @@ export const g01Combo = {
   },
 
   render(ctx) {
+    drawPlayBackdrop(ctx, this.id);
     const cx = L.W / 2;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -212,11 +214,11 @@ export const g01Combo = {
     if (this.multiMode && this.engine.fever && this.engine.fever.dan) {
       if (this.engine.fever) this.engine.fever.renderGauge(ctx, { x: L.safe, y: L.zone.gauge, w: L.W - L.safe * 2, h: L.gu(0.5) });
       ctx.fillStyle = THEME.gold;
-      ctx.font = font(L.font(0.09));
-      ctx.fillText(`${this.engine.fever.dan}단!`, cx, L.gu(9));
+      ctx.font = font(L.font(0.08));
+      ctx.fillText(`${this.engine.fever.dan}단!`, cx, L.gu(8.1));
       ctx.fillStyle = THEME.text;
       ctx.font = font(L.font(0.03), 'normal');
-      ctx.fillText('배수를 모두 눌러!', cx, L.gu(11.2));
+      ctx.fillText('배수를 모두 눌러!', cx, L.gu(10.25));
       for (const b of this.gridBtns) this._drawGridBtn(ctx, b);
       this._drawFeverBanner(ctx);
       return;
@@ -255,7 +257,7 @@ export const g01Combo = {
       ctx.fillText('🔁 다시 도전!', cx, L.gu(14));
     }
 
-    ctx.fillStyle = THEME.subtext;
+    ctx.fillStyle = '#4e517a';
     ctx.font = font(L.font(0.023), 'normal');
     ctx.fillText('정답을 찾아 눌러봐!', cx, this.choices[0].y - L.gu(1.25));
 
@@ -324,6 +326,8 @@ export const g01Combo = {
     ctx.strokeStyle = 'rgba(255,255,255,0.3)';
     ctx.lineWidth = L.gu(0.1);
     ctx.stroke();
+
+    drawTileGleam(ctx, c);
 
     ctx.fillStyle = '#fff';
     ctx.font = font(L.font(0.075));
@@ -518,6 +522,7 @@ export const g01Combo = {
     ctx.strokeStyle = 'rgba(255,255,255,0.3)';
     ctx.lineWidth = L.gu(0.1);
     ctx.stroke();
+    drawTileGleam(ctx, b);
     ctx.fillStyle = '#fff';
     ctx.font = font(L.font(0.06));
     ctx.textAlign = 'center';

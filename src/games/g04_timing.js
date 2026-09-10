@@ -12,6 +12,7 @@
 
 import { L } from '../core/layout.js';
 import { THEME, font } from '../core/ui.js';
+import { drawJellySurface, drawPlayBackdrop, drawRewardText } from '../art/toyArt.js';
 
 const BASE_PERIOD = 3.0; // 콤보 0에서 한 바퀴(초)
 const MIN_PERIOD = 1.2; // 가장 빠른 회전
@@ -313,6 +314,7 @@ export const g04Timing = {
   },
 
   render(ctx) {
+    drawPlayBackdrop(ctx, this.id, this.time || 0);
     const cx = this.cx;
     const cy = this.cy;
     ctx.textAlign = 'center';
@@ -354,8 +356,19 @@ export const g04Timing = {
 
     // 원판 테두리
     ctx.beginPath();
+    ctx.arc(cx, cy, this.ringR + L.gu(.45), 0, Math.PI * 2);
+    ctx.fillStyle = '#fff3d7';
+    ctx.fill();
+    for (let tick = 0; tick < 24; tick++) {
+      const a = tick * Math.PI / 12;
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.sin(a) * (this.ringR - L.gu(.24)), cy + Math.cos(a) * (this.ringR - L.gu(.24)));
+      ctx.lineTo(cx + Math.sin(a) * (this.ringR - L.gu(.6)), cy + Math.cos(a) * (this.ringR - L.gu(.6)));
+      ctx.strokeStyle = '#c8b6dd'; ctx.lineWidth = L.gu(.06); ctx.stroke();
+    }
+    ctx.beginPath();
     ctx.arc(cx, cy, this.ringR, 0, Math.PI * 2);
-    ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+    ctx.strokeStyle = '#9d8bbd';
     ctx.lineWidth = L.gu(0.15);
     ctx.stroke();
 
@@ -390,7 +403,7 @@ export const g04Timing = {
     // 중앙: 남은 회전 수(무한 대기 방지 안내). 피버 multi 중엔 시간초과가 없어 숨긴다.
     if (!this.multiMode) {
       const remain = Math.max(0, MAX_ROT - Math.floor(this.totalRot / (Math.PI * 2)));
-      ctx.fillStyle = THEME.subtext;
+      ctx.fillStyle = '#60577c';
       ctx.font = font(L.font(0.03), 'normal');
       ctx.fillText(`${remain}바퀴`, cx, cy + L.gu(1.6));
     }
@@ -405,13 +418,7 @@ export const g04Timing = {
         ctx.scale(s, s);
         ctx.translate(-pos.x, -pos.y);
       }
-      ctx.beginPath();
-      ctx.arc(pos.x, pos.y, this.numR, 0, Math.PI * 2);
-      ctx.fillStyle = THEME.accent;
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(255,255,255,0.3)';
-      ctx.lineWidth = L.gu(0.1);
-      ctx.stroke();
+      drawJellySurface(ctx, pos.x, pos.y, this.numR, this.numR, '#7965b7');
       ctx.fillStyle = '#fff';
       ctx.font = font(L.font(0.042));
       ctx.fillText(String(nm.value), pos.x, pos.y);
@@ -428,7 +435,7 @@ export const g04Timing = {
       ctx.font = font(f.size);
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(f.text, f.x, f.y - p * L.gu(2));
+      drawRewardText(ctx, f.text, f.x, f.y - p * L.gu(2));
       ctx.restore();
     }
 

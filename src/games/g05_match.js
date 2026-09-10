@@ -21,6 +21,7 @@
 
 import { L } from '../core/layout.js';
 import { THEME, font, roundRect } from '../core/ui.js';
+import { drawTileGleam, drawPlayBackdrop, drawRewardText } from '../art/toyArt.js';
 
 // 웨이브 구성: probs=문제 수, answers=답 카드 수, trapTier=함정 근접도 티어, timeLimit=제한(초,0=무제한)
 const WAVES = [
@@ -317,7 +318,7 @@ export const g05Match = {
       // 무지개 연결선 + 손맛
       const a = rectCenter(leftCard.rect);
       const b = rectCenter(rightCard.rect);
-      this.links.push({ ax: a.x, ay: a.y, bx: b.x, by: b.y, t: 0, dur: LINK_DUR });
+      this.links.push({ ax: a.x, ay: a.y, bx: b.x, by: b.y, cards: [{ ...leftCard.rect }, { ...rightCard.rect }], t: 0, dur: LINK_DUR });
       this.floatTexts.push({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, text: `+${shown}`, color: e.fever && e.fever.active ? THEME.gold : THEME.correct, size: L.font(0.038), t: 0, dur: FLOAT_DUR });
       e.particles.emit(b.x, b.y, 'sparkle', THEME.correct, 14);
       e.particles.emit(a.x, a.y, 'pop', THEME.gold, 8);
@@ -385,6 +386,7 @@ export const g05Match = {
   },
 
   render(ctx) {
+    drawPlayBackdrop(ctx, this.id, this.time || 0);
     this._drawFeverBg(ctx);
     if (this.engine.fever) {
       this.engine.fever.renderGauge(ctx, { x: L.safe, y: L.zone.gauge, w: L.W - L.safe * 2, h: L.gu(0.5) });
@@ -428,7 +430,7 @@ export const g05Match = {
       ctx.font = font(t.size);
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(t.text, t.x, t.y - prog * L.gu(2));
+      drawRewardText(ctx, t.text, t.x, t.y - prog * L.gu(2));
       ctx.restore();
     }
 
@@ -475,11 +477,12 @@ export const g05Match = {
       ctx.translate(-cx, -cy);
     }
     roundRect(ctx, r.x, r.y, r.w, r.h, L.gu(0.4));
-    ctx.fillStyle = side === 'left' ? THEME.panel : THEME.accent;
+    ctx.fillStyle = side === 'left' ? '#2b4655' : '#357e80';
     ctx.fill();
     ctx.strokeStyle = isSel ? THEME.gold : 'rgba(255,255,255,0.25)';
     ctx.lineWidth = isSel ? L.gu(0.28) : L.gu(0.08);
     ctx.stroke();
+    drawTileGleam(ctx, r);
 
     // 텍스트(카드 폭에 맞춰 자동 축소)
     const label = side === 'left' ? c.problem.text : String(c.value);
@@ -517,6 +520,22 @@ export const g05Match = {
     ctx.moveTo(link.ax, link.ay);
     ctx.lineTo(link.bx, link.by);
     ctx.stroke();
+    // 연결된 두 카드는 0.15초 동안 안쪽으로 접혀 정리된다.
+    // 이미 matched 처리되었으므로 이 잔상은 입력을 받지 않는다.
+    const fold = Math.min(1, link.t / 0.15);
+    if (fold < 1 && link.cards) {
+      const midX = (link.ax + link.bx) / 2;
+      const midY = (link.ay + link.by) / 2;
+      for (const card of link.cards) {
+        const x = (card.x + card.w / 2) * (1 - fold) + midX * fold;
+        const y = (card.y + card.h / 2) * (1 - fold) + midY * fold;
+        const w = card.w * (1 - fold), h = card.h * (1 - fold);
+        roundRect(ctx, x - w / 2, y - h / 2, w, h, Math.min(L.gu(0.25), h / 2));
+        ctx.fillStyle = THEME.correct;
+        ctx.globalAlpha = (1 - fold) * 0.65;
+        ctx.fill();
+      }
+    }
     ctx.restore();
   },
 

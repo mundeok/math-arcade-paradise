@@ -166,21 +166,31 @@ export class UI {
 
   // ── 콤보 텍스트 오버레이 (SPEC 3.3) ──
   showComboText(text, big = false) {
-    this.comboOverlays.push({ text, t: 0, dur: big ? 1.2 : 0.9, big });
+    const feverEntry = text.includes('FEVER!');
+    const compact = feverEntry || !!this.engine.fever?.active;
+    if (compact) this.comboOverlays = this.comboOverlays.filter(o => !o.compact); // 연타 중 문구 겹침 방지
+    this.comboOverlays.push({ text, t: 0, dur: feverEntry ? 0.45 : big ? 0.7 : 0.5, big, feverEntry, compact });
   }
   renderComboOverlays(ctx) {
     for (const o of this.comboOverlays) {
       const p = o.t / o.dur;
-      const scale = 1 + (o.big ? 0.5 : 0.3) * Math.sin(Math.min(1, p * 3) * Math.PI * 0.5);
+      const scale = 1 + (o.compact ? 0.08 : o.big ? 0.5 : 0.3) * Math.sin(Math.min(1, p * 3) * Math.PI * 0.5);
       const alpha = p < 0.7 ? 1 : 1 - (p - 0.7) / 0.3;
       ctx.save();
       ctx.globalAlpha = Math.max(0, alpha);
-      ctx.translate(LOGICAL_W / 2, LOGICAL_H * 0.34);
+      // 피버 진입은 HUD와 게이지 사이. 문제나 연타 격자를 덮지 않는다.
+      const regularY = this.engine.game?.id === 'g01_combo' ? L.zone.playTop + L.gu(10) : L.zone.playTop + L.gu(4.8);
+      ctx.translate(L.W / 2, o.compact ? L.zone.hudBottom + L.gu(0.15) : regularY);
       ctx.scale(scale, scale);
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.font = font(o.big ? 110 : 78);
-      ctx.lineWidth = 10;
+      let size = o.compact ? L.font(0.026) : L.font(o.big ? 0.086 : 0.061);
+      ctx.font = font(size);
+      const maxWidth = (L.W - L.safe * 2 - L.gu(0.5)) / scale;
+      const width = ctx.measureText(o.text).width;
+      if (width > maxWidth) size *= maxWidth / width;
+      ctx.font = font(size);
+      ctx.lineWidth = L.gu(o.compact ? 0.08 : 0.25);
       ctx.strokeStyle = 'rgba(0,0,0,0.55)';
       ctx.strokeText(o.text, 0, 0);
       ctx.fillStyle = THEME.gold;

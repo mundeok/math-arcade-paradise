@@ -4,6 +4,7 @@
 
 import { dummyGame } from './_dummy.js';
 import { g01Combo } from './g01_combo.js';
+import { g01Delivery } from './g01_delivery.js';
 import { g02Catch } from './g02_catch.js';
 import { g09Balloon } from './g09_balloon.js';
 import { g06Stack } from './g06_stack.js';
@@ -13,11 +14,13 @@ import { g05Match } from './g05_match.js';
 import { g07Shoot } from './g07_shoot.js';
 import { g03Race } from './g03_race.js';
 import { g10Treasure } from './g10_treasure.js';
+import { g11Farm } from './g11_farm.js';
 
 // 실제로 구현되어 플레이 가능한 게임들 (Phase 0: 더미 1개 / Phase 1: +2종 / Phase 2: +2종 / Phase 3: +2종 / Phase 4: +2종 / Phase 5: +2종)
 export const IMPLEMENTED = [
   dummyGame,
-  g01Combo, // Phase 1
+  g01Combo, // 기존 버전: 배송 시작 화면의 비교 버튼으로 접근, 기록 보존
+  g01Delivery, // 대표작 실험: 메뉴에서는 기존 콤보 자리를 사용
   g02Catch, // Phase 1
   g09Balloon, // Phase 2
   g06Stack, // Phase 2
@@ -27,12 +30,13 @@ export const IMPLEMENTED = [
   g07Shoot, // Phase 4
   g03Race, // Phase 5
   g10Treasure, // Phase 5
+  g11Farm, // 구성형 체험: 배열을 직접 그려 수확
 ];
 
-// 메뉴 표시용 10종 카탈로그 (SPEC §4). 구현 전 게임은 "준비 중"으로 뜬다.
+// 메뉴 표시용 기본 10종 + 배열 구성 체험 1종 (추가 명세: GAMEPLAY_REVIEW.md).
 // id가 IMPLEMENTED에 있으면 활성, 없으면 비활성.
 export const CATALOG = [
-  { id: 'g01_combo', name: '콤보 챌린지', emoji: '⚡' },
+  { id: 'g01_delivery', name: '두 갈래 배송', emoji: '📦' },
   { id: 'g02_catch', name: '떨어지는 캐치', emoji: '🎪' },
   { id: 'g03_racing', name: '레이싱 계산', emoji: '🚀' },
   { id: 'g04_timing', name: '타이밍 퍼즐', emoji: '🎯' },
@@ -42,6 +46,7 @@ export const CATALOG = [
   { id: 'g08_chain', name: '배수 체인', emoji: '🔗' },
   { id: 'g09_balloon', name: '벌룬 팝', emoji: '🎈' },
   { id: 'g10_remain', name: '나머지 보물찾기', emoji: '💎' },
+  { id: 'g11_farm', name: '곱셈 농장', emoji: '🌱' },
 ];
 
 // Phase 0 검증용 더미 게임(카탈로그 맨 앞에 활성 상태로 노출)

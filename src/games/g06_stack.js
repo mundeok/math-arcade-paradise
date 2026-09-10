@@ -22,6 +22,7 @@
 
 import { L } from '../core/layout.js';
 import { THEME, font, roundRect } from '../core/ui.js';
+import { drawPlayBackdrop, drawRewardText } from '../art/toyArt.js';
 
 const BASE_FALL_SEC = 2.6; // 콤보 0에서 낙하 거리(fallDist)를 통과하는 시간
 const FALL_MIN_SEC = 1.0; // 화면 통과 최소 시간(하드 클램프) — 반응 시간 보장
@@ -59,7 +60,9 @@ export const g06Stack = {
     return this.towerW / 2 + this.fallBlockW * 0.2; // 이 거리 이내면 받는다
   },
   get fallDist() {
-    return L.gu(13); // 받는 선 위로 고정 스폰 거리 → 탑 높이와 무관하게 반응 시간 일정
+    // 높은 탑에서도 문제 뒤에 숨는 시간을 줄인다. 거리/기존 sec로 속도를
+    // 계산하므로 상단 보호 영역 때문에 가시 낙하 시간이 짧아지지 않는다.
+    return Math.min(L.gu(13), this._catchY() - L.zone.problem - L.gu(4.6) - this.fallBlockH / 2 - (this.camY || 0));
   },
   get staggerY() {
     return L.gu(4.5);
@@ -69,7 +72,7 @@ export const g06Stack = {
   },
 
   tutorial: {
-    text: '좌우로 움직여 정답 블록을 받아 탑을 쌓아! 놓치면 안 돼!',
+    text: '좌우로 움직여 정답 화물을 받아! 목표 개수를 모으면 배송 출발!',
     draw(ctx) {
       const cx = L.W / 2;
       ctx.textAlign = 'center';
@@ -117,6 +120,7 @@ export const g06Stack = {
     this.problem = null;
     this.blocks = []; // [{value, correct, isMultiple?, x, y, age, resolved}]
     this.stacked = []; // 쌓인 값(라벨용)
+    this.deliveredCount = 0; // 압축과 별개인 웨이브 정답 수
     this.waveIndex = 0;
     this.wrongInWave = 0;
     this.waveHadWrong = false;
@@ -152,8 +156,7 @@ export const g06Stack = {
   },
 
   _targetFor(i) {
-    // 목표 높이를 순환시킨다(5→8→12→15→20 후 다시 5). 20칸 초과로 블록이 실선처럼 얇아지고
-    //   웨이브가 무한정 길어지는 문제 방지. 상승감은 높이 대신 속도·오답수(콤보 유지)로 만든다.
+    // 받은 정답 수 4→5→6→7→8 순환. 압축해도 배송 진행도는 줄지 않는다.
     return TARGETS[i % TARGETS.length];
   },
   get target() {
@@ -239,6 +242,7 @@ export const g06Stack = {
 
   _nextWaveReset() {
     this.stacked = [];
+    this.deliveredCount = 0;
     this.wrongInWave = 0;
     this.waveHadWrong = false;
     this.collapsing = false;
@@ -248,13 +252,15 @@ export const g06Stack = {
 
   _waveComplete() {
     const tgt = this.target;
-    this.waveGlow = { count: this.stacked.length, t: 0, dur: 0.6 };
+    this.waveGlow = { count: this.stacked.length, values: this.stacked.slice(), x: this.towerX, bh: this._towerGeom().bh, t: 0, dur: 0.6 };
     this.completedHeights.push(this.stacked.length); // 완료 웨이브 누적(배경 실루엣)
     if (this.completedHeights.length > 12) this.completedHeights.shift();
-    this.engine.ui.showComboText(`웨이브 클리어! +${tgt * 50}`, true);
+    this.engine.ui.showComboText('배송 완료!', false);
     this.engine.ui.flash('rgba(255,220,140,0.4)', 0.1);
     this.engine.particles.emit(this.towerX, this._catchY(), 'sparkle', THEME.gold, 24);
     this.waveIndex += 1;
+    this.popEffects = []; // 이전 화물이 새 카트로 날아오는 잔상 방지
+    this.compressEffect = null;
     this._nextWaveReset();
     if (this.multiMode) this.blocks = []; // 피버 중이면 multi 스트림을 update가 다시 채운다
     else this._startRound();
@@ -457,10 +463,11 @@ export const g06Stack = {
     const nearMiss = !this.nearMissUsed && b.y >= catchY + band * NEARMISS_LATE_R; // 늦게(아슬아슬) 받음
 
     this.stacked.push(b.value);
+    this.deliveredCount += 1;
     this.thud = 0.12;
-    this._checkCompress(); // 같은 값 3개 연속 → 압축(동수누가). 압축 후 길이로 완료 판정.
+    this._checkCompress(); // 높이는 압축하고, 완료 판정은 받은 정답 수로 한다.
     const tgt = this.target;
-    const waveDone = this.stacked.length >= tgt;
+    const waveDone = this.deliveredCount >= tgt;
 
     let pts = 10; // 블록 1개
     if (waveDone) pts += tgt * 50 + (this.waveHadWrong ? 0 : 200);
@@ -512,10 +519,11 @@ export const g06Stack = {
     const q = Math.round(b.value / dan);
     const prob = { a: dan, b: q, op: '×', answer: b.value, remainder: null, text: `${dan} × ${q}`, blank: null, level: 1 };
     this.stacked.push(b.value);
+    this.deliveredCount += 1;
     this.thud = 0.12;
-    this._checkCompress(); // 같은 값 3개 연속 → 압축(동수누가). 압축 후 길이로 완료 판정.
+    this._checkCompress(); // 피버에서도 압축은 배송 진행도를 줄이지 않는다.
     const tgt = this.target;
-    const waveDone = this.stacked.length >= tgt;
+    const waveDone = this.deliveredCount >= tgt;
     let pts = 10;
     if (waveDone) pts += tgt * 50; // 피버 완료 보너스(무오답 +200은 피버엔 미적용)
     e.answerCorrect(prob, b.value, pts); // 점수배수·게이지·정답음·연출 자동(무적)
@@ -562,6 +570,10 @@ export const g06Stack = {
       const v = s[s.length - 1];
       const merged = v * 3;
       s.splice(s.length - 3, 3, merged); // 3개 → 1개(v×3)
+      if (this.wrongInWave > 0) {
+        this.wrongInWave -= 1;
+        this._recover(); // 우연한 압축은 위태로운 탑도 살리는 순수 보상
+      }
       e.scoreManager.addPoints(100); // 압축 보너스(콤보·세션 불변)
       if (e.fever) e.fever.addPoints(100);
       e.ui.showComboText(`${v} × 3 = ${merged}!`, false); // 동수누가 → 곱셈 시각화
@@ -589,6 +601,7 @@ export const g06Stack = {
 
   // ── 렌더 ──
   render(ctx) {
+    drawPlayBackdrop(ctx, this.id, this.time || 0);
     const cx = L.W / 2;
     const floorY = L.zone.floor;
     ctx.textAlign = 'center';
@@ -606,7 +619,7 @@ export const g06Stack = {
       ctx.fillText(`${this.engine.fever.dan}단!`, cx, L.zone.problem);
       ctx.fillStyle = THEME.text;
       ctx.font = font(L.font(0.03), 'normal');
-      ctx.fillText('배수를 받아서 쌓아!', cx, L.zone.problem + L.gu(1.6));
+      ctx.fillText(`배수를 받아서 쌓아! · ${this.deliveredCount}/${this.target}`, cx, L.zone.problem + L.gu(1.6));
     } else {
       ctx.fillStyle = THEME.text;
       ctx.font = font(L.font(0.07));
@@ -614,7 +627,7 @@ export const g06Stack = {
       ctx.fillText(qText, cx, L.zone.problem);
       ctx.fillStyle = THEME.subtext;
       ctx.font = font(L.font(0.028), 'normal');
-      ctx.fillText(`${this.waveIndex + 1}번째 탑 · 목표 ${this.target}칸 · 현재 ${this.stacked.length}칸`, cx, L.zone.problem + L.gu(1.6));
+      ctx.fillText(`${this.waveIndex + 1}번째 배송 · 받은 화물 ${this.deliveredCount}/${this.target}`, cx, L.zone.problem + L.gu(1.6));
       if (this.problem.fromReview) {
         ctx.fillStyle = THEME.gold;
         ctx.font = font(L.font(0.026));
@@ -630,10 +643,13 @@ export const g06Stack = {
 
     // 플레이 영역(카메라 상향 적용)
     ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, L.zone.problem + L.gu(4.6), L.W, L.H);
+    ctx.clip(); // 고정 문제/진행/기울기 안내 영역 보호
     ctx.translate(0, -this.camY);
 
     // 바닥/받는선 안내
-    ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+    ctx.strokeStyle = '#739998';
     ctx.lineWidth = Math.max(2, L.gu(0.08));
     ctx.setLineDash([L.gu(0.5), L.gu(0.4)]);
     ctx.beginPath();
@@ -670,7 +686,7 @@ export const g06Stack = {
       ctx.globalAlpha = Math.max(0, 1 - prog);
       ctx.fillStyle = THEME.wrong;
       ctx.font = font(L.font(0.045));
-      ctx.fillText('앗! -1', m.x, m.y - prog * L.gu(1.2));
+      drawRewardText(ctx, '앗! -1', m.x, m.y - prog * L.gu(1.2));
       ctx.restore();
     }
     if (this.recoverEffect) {
@@ -679,7 +695,7 @@ export const g06Stack = {
       ctx.globalAlpha = Math.max(0, 1 - prog);
       ctx.fillStyle = THEME.correct;
       ctx.font = font(L.font(0.04));
-      ctx.fillText('휴—', this.towerX, this._catchY() - L.gu(1.5) - prog * L.gu(1));
+      drawRewardText(ctx, '휴—', this.towerX, this._catchY() - L.gu(1.5) - prog * L.gu(1));
       ctx.restore();
     }
     if (this.compressEffect) {
@@ -697,7 +713,7 @@ export const g06Stack = {
       ctx.font = font(L.font(0.055));
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(String(c.merged), this.towerX, y - L.gu(1) - prog * L.gu(1));
+      drawRewardText(ctx, String(c.merged), this.towerX, y - L.gu(1) - prog * L.gu(1));
       ctx.restore();
     }
     ctx.restore();
@@ -718,7 +734,7 @@ export const g06Stack = {
     let x = L.W - L.safe - totalW + barW / 2;
     ctx.save();
     ctx.globalAlpha = 0.14;
-    ctx.fillStyle = THEME.text;
+    ctx.fillStyle = '#41777d';
     for (const h of show) {
       const bh = h * unit;
       roundRect(ctx, x - barW / 2, floorY - bh, barW, bh, L.gu(0.1));
@@ -737,6 +753,7 @@ export const g06Stack = {
     const tilt = (this.tiltCur * Math.PI) / 180 + wobble;
     const squash = this.thud > 0 ? 1 - 0.14 * (this.thud / 0.12) : 1;
 
+    this._drawCart(ctx, this.towerX, floorY, this.thud / 0.12);
     ctx.save();
     ctx.translate(this.towerX, floorY);
     ctx.rotate(-tilt);
@@ -754,32 +771,57 @@ export const g06Stack = {
     ctx.restore();
   },
 
+  _drawCart(ctx, x, floorY, impact = 0) {
+    const w = this.towerW + L.gu(0.6);
+    const y = floorY + L.gu(0.2) * impact;
+    ctx.save();
+    roundRect(ctx, x - w / 2, y, w, L.gu(0.55), L.gu(0.12));
+    ctx.fillStyle = THEME.gold;
+    ctx.fill();
+    ctx.fillStyle = '#b98027';
+    ctx.fillRect(x - w / 2 + L.gu(0.1), y + L.gu(0.4), w - L.gu(0.2), L.gu(0.12));
+    for (const side of [-1, 1]) {
+      const wheelX = x + side * w * 0.32;
+      ctx.beginPath();
+      ctx.arc(wheelX, y + L.gu(0.85), L.gu(0.26), 0, Math.PI * 2);
+      ctx.fillStyle = '#7184a8';
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(wheelX, y + L.gu(0.85), L.gu(0.1), 0, Math.PI * 2);
+      ctx.fillStyle = THEME.text;
+      ctx.fill();
+    }
+    // 받는 순간 좌우로 짧게 퍼지는 무게 표시(무음 손맛).
+    if (impact > 0) {
+      ctx.strokeStyle = THEME.gold;
+      ctx.lineWidth = L.gu(0.08);
+      for (const side of [-1, 1]) {
+        ctx.beginPath();
+        ctx.moveTo(x + side * (w / 2 + L.gu(0.1)), y + L.gu(0.4));
+        ctx.lineTo(x + side * (w / 2 + L.gu(0.8) * impact), y + L.gu(0.6));
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  },
+
   _renderWaveGlow(ctx, floorY) {
     const g = this.waveGlow;
     if (!g) return;
     const prog = g.t / g.dur;
-    const { bh, bw, gap } = this._towerGeom();
+    const travel = Math.max(0, (prog - 0.15) / 0.85);
+    const x = g.x + (L.W + this.towerW - g.x) * travel * travel;
     ctx.save();
-    ctx.shadowColor = THEME.gold;
-    ctx.shadowBlur = L.gu(0.8) + L.gu(1.2) * (1 - prog);
+    ctx.globalAlpha = 1 - prog * 0.4;
+    this._drawCart(ctx, x, floorY);
     for (let i = 0; i < g.count; i++) {
-      // 아래에서 위로 순차적으로 빛남
-      const lit = prog * g.count;
-      const a = Math.max(0, 1 - Math.abs(i - lit) / 2) * (1 - prog);
-      if (a <= 0) continue;
-      ctx.globalAlpha = a;
-      const y = floorY - (i + 1) * bh + gap / 2;
-      roundRect(ctx, this.towerX - bw / 2, y, bw, bh - gap, Math.min(L.gu(0.4), (bh - gap) * 0.22));
-      ctx.fillStyle = THEME.gold;
-      ctx.fill();
+      const lit = Math.abs(i / Math.max(1, g.count) - prog * 2) < 0.3;
+      this._drawBlock(ctx, x, floorY - (i + 0.5) * g.bh, this.towerW, g.bh - L.gu(0.14), lit ? THEME.gold : THEME.correct, String(g.values[i]), L.font(0.026));
     }
-    // 꼭대기 별
-    ctx.globalAlpha = Math.max(0, 1 - prog);
-    ctx.font = font(L.font(0.05));
+    ctx.font = font(L.font(0.04));
     ctx.fillStyle = THEME.gold;
     ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('⭐', this.towerX, floorY - g.count * bh - L.gu(1));
+    ctx.fillText('★', x, floorY - g.count * g.bh - L.gu(0.6));
     ctx.restore();
   },
 
@@ -791,6 +833,17 @@ export const g06Stack = {
     ctx.strokeStyle = 'rgba(255,255,255,0.3)';
     ctx.lineWidth = Math.max(2, w * 0.02);
     ctx.stroke();
+    // 화물의 윗면과 모서리. 가운데 숫자는 가리지 않는다.
+    const edge = Math.min(L.gu(0.14), h * 0.12);
+    ctx.fillStyle = 'rgba(255,255,255,0.28)';
+    ctx.fillRect(x - w / 2 + edge, y - h / 2 + edge, w - edge * 2, edge);
+    ctx.fillStyle = 'rgba(0,0,0,0.16)';
+    ctx.fillRect(x - w / 2 + edge, y + h / 2 - edge * 2, w - edge * 2, edge);
+    // 포장 테이프는 양 끝에만. 정답 여부·값과 무관한 동일한 화물 외형이다.
+    ctx.fillStyle = 'rgba(255,239,193,0.5)';
+    for (const side of [-1, 1]) {
+      ctx.fillRect(x + side * w * 0.38 - edge / 2, y - h / 2 + edge * 2, edge, h - edge * 4);
+    }
     ctx.fillStyle = '#fff';
     ctx.font = font(fontPx || L.font(0.04));
     ctx.textAlign = 'center';

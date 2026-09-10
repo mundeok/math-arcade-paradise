@@ -21,6 +21,7 @@
 
 import { L } from '../core/layout.js';
 import { THEME, font } from '../core/ui.js';
+import { drawJellySurface, drawPlayBackdrop, drawRewardText } from '../art/toyArt.js';
 
 const WAVE_GOAL = 6; // 웨이브당 이어야 할 배수 개수(N..6N)
 
@@ -274,6 +275,32 @@ export const g08Chain = {
     ctx.fillText(text, cx, y);
   },
 
+  _separateBubbles() {
+    // 이동 속도와 수량은 유지하고 위치만 최소 거리로 보정한다.
+    // 화면 밖으로 나가는 흐름을 유지하기 위해 경계에 가두거나 반사시키지 않는다.
+    const gap = this.br * 2 + L.gu(0.15);
+    for (let pass = 0; pass < 64; pass++) {
+      let changed = false;
+      for (let i = 0; i < this.bubbles.length; i++) {
+        for (let j = i + 1; j < this.bubbles.length; j++) {
+          const a = this.bubbles[i], b = this.bubbles[j];
+          let dx = b.x - a.x, dy = b.y - a.y;
+          const distance = Math.hypot(dx, dy);
+          if (distance >= gap) continue;
+          if (distance < L.gu(0.0001)) {
+            const angle = (i + j * 2) * 2.399;
+            dx = Math.cos(angle); dy = Math.sin(angle);
+          } else { dx /= distance; dy /= distance; }
+          const shift = (gap - distance) / 2 + L.gu(0.001);
+          a.x -= dx * shift; a.y -= dy * shift;
+          b.x += dx * shift; b.y += dy * shift;
+          changed = true;
+        }
+      }
+      if (!changed) break;
+    }
+  },
+
   update(dt) {
     this.time += dt;
 
@@ -303,6 +330,8 @@ export const g08Chain = {
     const m = this.br * 2.2;
     this.bubbles = this.bubbles.filter((b) => b.x > R.x0 - m && b.x < R.x1 + m && b.y > R.y0 - m && b.y < R.y1 + m);
     this._refill();
+
+    this._separateBubbles();
 
     if (this.zoomT > 0) this.zoomT = Math.max(0, this.zoomT - dt);
     for (let i = this.floats.length - 1; i >= 0; i--) {
@@ -405,6 +434,7 @@ export const g08Chain = {
   },
 
   render(ctx) {
+    drawPlayBackdrop(ctx, this.id, this.time || 0);
     const cx = L.W / 2;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -456,13 +486,7 @@ export const g08Chain = {
         ctx.scale(z, z);
         ctx.translate(-b.x, -b.y);
       }
-      ctx.beginPath();
-      ctx.arc(b.x, b.y, this.br, 0, Math.PI * 2);
-      ctx.fillStyle = THEME.accent;
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(255,255,255,0.3)';
-      ctx.lineWidth = L.gu(0.1);
-      ctx.stroke();
+      drawJellySurface(ctx, b.x, b.y, this.br, this.br, '#258b92');
       ctx.fillStyle = '#fff';
       ctx.font = font(L.font(0.045));
       ctx.textAlign = 'center';
@@ -480,7 +504,7 @@ export const g08Chain = {
       ctx.font = font(f.size);
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(f.text, f.x, f.y - p * L.gu(1.8));
+      drawRewardText(ctx, f.text, f.x, f.y - p * L.gu(1.8));
       ctx.restore();
     }
 

@@ -44,6 +44,7 @@
 
 import { L } from '../core/layout.js';
 import { THEME, font, roundRect } from '../core/ui.js';
+import { drawTreasureChest, drawPirate, drawPlayBackdrop, drawRewardText } from '../art/toyArt.js';
 
 const CONCEPT_KEY = 'g10_remain.conceptSeen'; // storage가 mathArcade. 접두
 const REVEAL_DUR = 1.2; // 식 조립 연출(초) — 긍정적 순간, 오답 정지(1.2s)보다 부드럽게
@@ -563,6 +564,7 @@ export const g10Treasure = {
 
   // ── 렌더 ──────────────────────────────────────────────────
   render(ctx) {
+    if (this.mode !== 'concept') drawPlayBackdrop(ctx, this.id, this.time || 0);
     this._drawFeverBg(ctx);
     if (this.engine.fever) {
       this.engine.fever.renderGauge(ctx, { x: L.safe, y: L.zone.gauge, w: L.W - L.safe * 2, h: L.gu(0.5) });
@@ -631,7 +633,7 @@ export const g10Treasure = {
     ctx.save();
     // 통(보석 더미) 배경
     roundRect(ctx, rect.x, rect.y, rect.w, rect.h, L.gu(0.5));
-    ctx.fillStyle = 'rgba(255,255,255,0.05)';
+    ctx.fillStyle = '#3a666f'; // 밝은 해변 위에서도 보석 개수/라벨 대비 유지
     ctx.fill();
     ctx.strokeStyle = 'rgba(255,255,255,0.15)';
     ctx.lineWidth = L.gu(0.06);
@@ -682,8 +684,7 @@ export const g10Treasure = {
     ctx.strokeStyle = THEME.gold;
     ctx.lineWidth = L.gu(0.08);
     ctx.stroke();
-    ctx.font = font(L.font(0.055));
-    ctx.fillText('🧰', r.x + r.w / 2, r.y + r.h * 0.42);
+    drawTreasureChest(ctx, r.x + r.w / 2, r.y + r.h * 0.42, Math.min(L.gu(2), r.h * 0.8));
     ctx.fillStyle = THEME.subtext;
     ctx.font = font(L.font(0.024), 'normal');
     // reveal 중이면 나머지 수를 보여준다
@@ -712,8 +713,7 @@ export const g10Treasure = {
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       // 해적
-      ctx.font = font(Math.min(L.font(0.05), r.h * 0.34));
-      ctx.fillText('🏴‍☠️', r.x + r.w / 2, r.y + r.h * 0.3);
+      drawPirate(ctx, r.x + r.w / 2, r.y + r.h * 0.3, Math.min(L.gu(2.3), r.h * 0.55, r.w * 0.9));
       // 받은 개수(크게 — "몇 개씩 갔는지")
       ctx.fillStyle = '#fff';
       ctx.font = font(Math.min(L.font(0.06), r.h * 0.4));
@@ -797,7 +797,7 @@ export const g10Treasure = {
     const w = ctx.measureText(msg).width;
     if (w > maxW) size = Math.max(L.font(0.024), (size * maxW) / w);
     ctx.font = font(size);
-    ctx.fillText(msg, L.W / 2, this._btnRow() - L.gu(1));
+    drawRewardText(ctx, msg, L.W / 2, this._btnRow() - L.gu(1));
     ctx.restore();
   },
 
@@ -919,7 +919,7 @@ export const g10Treasure = {
       ctx.font = font(t.size);
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(t.text, t.x, t.y - p * L.gu(2));
+      drawRewardText(ctx, t.text, t.x, t.y - p * L.gu(2));
       ctx.restore();
     }
   },

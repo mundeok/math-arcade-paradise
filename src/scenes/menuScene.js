@@ -7,6 +7,7 @@ import { L } from '../core/layout.js';
 import { ScoreManager } from '../core/scoreManager.js';
 import { IMPLEMENTED, CATALOG, getGameById } from '../games/registry.js';
 import { dummyGame } from '../games/_dummy.js';
+import { drawGameCard, drawGameIcon } from '../art/toyArt.js';
 
 const LONGPRESS_SEC = 1.5; // 교사 설정 진입 롱프레스 시간 (학생 오조작 방지)
 
@@ -90,20 +91,12 @@ export const menuScene = {
 
     // 게임 셀
     for (const c of this.cells) {
-      roundRect(ctx, c.x, c.y, c.w, c.h, 22);
-      ctx.fillStyle = c.active ? THEME.accent : THEME.disabled;
-      ctx.fill();
-      if (c.active) {
-        ctx.strokeStyle = THEME.gold;
-        ctx.lineWidth = 4;
-        ctx.stroke();
-      }
+      drawGameCard(ctx, c.id, c, c.active);
 
       ctx.globalAlpha = c.active ? 1 : 0.55;
-      // 이모지
-      ctx.font = font(70);
+      // 전용 Canvas 스티커. 이름·최고점·배지·랭킹 동작은 그대로 둔다.
+      drawGameIcon(ctx, c.id, c.x + c.w / 2, c.y + L.gu(1.6), L.gu(2.25));
       ctx.fillStyle = '#fff';
-      ctx.fillText(c.emoji, c.x + c.w / 2, c.y + 70);
       // 이름
       ctx.font = font(26);
       ctx.fillText(c.name, c.x + c.w / 2, c.y + 130);

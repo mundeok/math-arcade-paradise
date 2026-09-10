@@ -42,6 +42,8 @@
 
 import { L } from '../core/layout.js';
 import { THEME, font } from '../core/ui.js';
+import { drawWorldHeader } from '../art/arcadeWorld.js';
+import { drawRewardText } from '../art/toyArt.js';
 
 // ── 상수 ──────────────────────────────────────────────────
 const TRACK = 30; // 총 게이트 수
@@ -716,6 +718,7 @@ export const g03Race = {
     ctx.restore();
 
     // 상단 UI: 피버 게이지 · 문제 · 진행/유령 라벨
+    drawWorldHeader(ctx, this.id);
     if (this.engine.fever) {
       this.engine.fever.renderGauge(ctx, { x: L.safe, y: L.zone.gauge, w: L.W - L.safe * 2, h: L.gu(0.5) });
     }
@@ -745,10 +748,12 @@ export const g03Race = {
       ctx.fill();
       ctx.fillStyle = THEME.gold;
       ctx.fillText(label, cx, L.zone.problem);
-      const sub = this.gate.nextLane != null ? '➜ 곧 옆 차선으로!' : '배수 차선으로 통과!';
       ctx.fillStyle = this.gate.nextLane != null ? THEME.gold : THEME.text;
-      ctx.font = font(L.font(0.026), 'normal');
-      ctx.fillText(sub, cx, L.zone.problem + L.gu(1.6));
+      ctx.font = font(L.font(0.024), 'normal');
+      // Keep the instruction beside, not on top of, distant gate values.
+      const hintX = L.safe + L.gu(2.2);
+      drawRewardText(ctx, this.gate.nextLane != null ? '➜ 곧 옆' : '배수 차선으로', hintX, L.zone.problem + L.gu(1.2));
+      drawRewardText(ctx, this.gate.nextLane != null ? '차선으로!' : '통과!', hintX, L.zone.problem + L.gu(2.1));
       ctx.restore();
       return;
     }
@@ -783,7 +788,7 @@ export const g03Race = {
     ctx.fillStyle = THEME.subtext;
     ctx.font = font(L.font(0.03), 'normal');
     ctx.textAlign = 'left';
-    ctx.fillText(`🏁 ${this.gatesPassed} / ${TRACK}`, L.safe, this._carLineY() + L.gu(2.6));
+    drawRewardText(ctx, `🏁 ${this.gatesPassed} / ${TRACK}`, L.safe, this._carLineY() + L.gu(2.6));
     ctx.restore();
   },
 
@@ -976,9 +981,9 @@ export const g03Race = {
 function drawSky(ctx, game) {
   const horizonY = game._horizonY();
   const g = ctx.createLinearGradient(0, 0, 0, horizonY);
-  g.addColorStop(0, '#3b2f66');
-  g.addColorStop(0.55, '#8a4a8f');
-  g.addColorStop(1, '#ff8a5c');
+  g.addColorStop(0, '#95cfe5');
+  g.addColorStop(0.55, '#bedee4');
+  g.addColorStop(1, '#ffedc6');
   ctx.save();
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, L.W, horizonY + 2);
@@ -988,7 +993,7 @@ function drawSky(ctx, game) {
   ctx.arc(L.W / 2, horizonY - L.gu(1.2), L.gu(2.2), 0, Math.PI * 2);
   ctx.fill();
   // 먼 언덕 실루엣
-  ctx.fillStyle = '#5a3a6e';
+  ctx.fillStyle = '#94c6a5';
   ctx.beginPath();
   ctx.moveTo(0, horizonY);
   ctx.quadraticCurveTo(L.W * 0.2, horizonY - L.gu(1.4), L.W * 0.4, horizonY);
@@ -1005,8 +1010,8 @@ function drawSky(ctx, game) {
 function drawGround(ctx, game) {
   const horizonY = game._horizonY();
   const g = ctx.createLinearGradient(0, horizonY, 0, L.H);
-  g.addColorStop(0, '#2f5a3a');
-  g.addColorStop(1, '#1e3d28');
+  g.addColorStop(0, '#bedb9f');
+  g.addColorStop(1, '#83bba2');
   ctx.save();
   ctx.fillStyle = g;
   ctx.fillRect(0, horizonY, L.W, L.H - horizonY);
@@ -1024,19 +1029,18 @@ function drawSideObject(ctx, game, o) {
   ctx.save();
   ctx.globalAlpha = Math.min(1, 0.35 + o.z);
   if (o.kind === 'tree') {
-    ctx.fillStyle = '#20402a';
+    ctx.fillStyle = '#bd956b';
     ctx.fillRect(x - L.gu(0.15) * s, y - L.gu(1.2) * s, L.gu(0.3) * s, L.gu(1.4) * s);
-    ctx.fillStyle = '#2e6b3e';
-    ctx.beginPath();
-    ctx.moveTo(x, y - L.gu(3) * s);
-    ctx.lineTo(x - L.gu(1.1) * s, y - L.gu(0.8) * s);
-    ctx.lineTo(x + L.gu(1.1) * s, y - L.gu(0.8) * s);
-    ctx.closePath();
-    ctx.fill();
+    ctx.fillStyle = '#61a991';
+    for (const dx of [-0.45, 0, 0.45]) {
+      ctx.beginPath();
+      ctx.ellipse(x + L.gu(dx) * s, y - L.gu(dx === 0 ? 2 : 1.5) * s, L.gu(.7) * s, L.gu(.85) * s, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
   } else if (o.kind === 'building') {
     const bw = L.gu(1.6) * s;
     const bh = L.gu(3.4) * s * (0.7 + o.seed * 0.6);
-    ctx.fillStyle = '#3a3350';
+    ctx.fillStyle = '#e5b994';
     ctx.fillRect(x - bw / 2, y - bh, bw, bh);
     ctx.fillStyle = 'rgba(255,220,140,0.5)'; // 창문
     const ws = L.gu(0.3) * s;
@@ -1143,7 +1147,12 @@ function drawCar(ctx, x, y, w, h, tilt, color, alpha) {
   ctx.fillRect(w * 0.39, -h * 0.28, w * 0.16, h * 0.5);
   // 차체
   roundRectPath(ctx, -w * 0.42, -h * 0.5, w * 0.84, h, w * 0.18);
-  ctx.fillStyle = color;
+  const paint = ctx.createLinearGradient(-w * 0.42, 0, w * 0.42, 0);
+  paint.addColorStop(0, color);
+  paint.addColorStop(0.3, '#ffe8c7');
+  paint.addColorStop(0.55, color);
+  paint.addColorStop(1, color);
+  ctx.fillStyle = paint;
   ctx.fill();
   ctx.strokeStyle = 'rgba(0,0,0,0.25)';
   ctx.lineWidth = Math.max(2, w * 0.03);
@@ -1151,6 +1160,20 @@ function drawCar(ctx, x, y, w, h, tilt, color, alpha) {
   // 뒷유리
   roundRectPath(ctx, -w * 0.3, -h * 0.34, w * 0.6, h * 0.26, w * 0.08);
   ctx.fillStyle = 'rgba(180,220,255,0.85)';
+  ctx.fill();
+  // 유리 반사와 중앙 레이싱 스트라이프 — 차체 범위 안의 장난감 도장.
+  ctx.fillStyle = '#eafff1';
+  ctx.beginPath();
+  ctx.moveTo(-w * 0.23, -h * 0.3);
+  ctx.lineTo(w * 0.06, -h * 0.3);
+  ctx.lineTo(-w * 0.23, -h * 0.13);
+  ctx.closePath();
+  ctx.fill();
+  roundRectPath(ctx, -w * 0.075, h * 0.01, w * 0.15, h * 0.38, w * 0.03);
+  ctx.fillStyle = '#fff2d5';
+  ctx.fill();
+  roundRectPath(ctx, -w * 0.45, h * 0.35, w * 0.9, h * 0.09, w * 0.04);
+  ctx.fillStyle = '#273950';
   ctx.fill();
   // 후미등(색만이 아니라 위치·모양으로도 구분)
   ctx.fillStyle = '#ffd54a';

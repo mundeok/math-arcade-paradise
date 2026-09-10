@@ -24,6 +24,7 @@
 
 import { L } from '../core/layout.js';
 import { THEME, font } from '../core/ui.js';
+import { drawNumberRobot, drawToyLauncher, drawPlayBackdrop, drawRewardText } from '../art/toyArt.js';
 
 // ── 시간 상수(초). 정답 연출은 흐름을 멈추지 않는다(§2.6 상한 준수). ──
 const HITSTOP = 0.05; // 순간 정지(0.03~0.06)
@@ -352,7 +353,7 @@ export const g07Shoot = {
       this.hitStreak += 1;
       e.particles.emit(en.x, en.y, 'sparkle', THEME.gold, 16);
       e.particles.emit(en.x, en.y, 'explode', THEME.accent, 16);
-      this.puffs.push({ x: en.x, y: en.y, t: 0, dur: PUFF_DUR, r: this.enemyR });
+      this.puffs.push({ x: en.x, y: en.y, value: en.value, t: 0, dur: PUFF_DUR, r: this.enemyR });
       this.floatTexts.push({ x: en.x, y: en.y, text: `+${Math.round((50 + e.scoreManager.combo * 10) * fv.scoreMultiplier)}`, color: THEME.gold, size: L.font(0.038), t: 0, dur: FLOAT_DUR });
       this.hitStop = HITSTOP;
       e.sound.play('pop');
@@ -388,7 +389,7 @@ export const g07Shoot = {
     e.particles.emit(target.x, target.y, 'sparkle', THEME.gold, Math.round((nearMiss ? 22 : 16) * mult));
     e.particles.emit(target.x, target.y, 'explode', THEME.accent, Math.round(18 * mult));
     e.particles.emit(target.x, target.y, 'pop', '#ffffff', Math.round(10 * mult));
-    this.puffs.push({ x: target.x, y: target.y, t: 0, dur: PUFF_DUR, r: this.enemyR });
+    this.puffs.push({ x: target.x, y: target.y, value: target.value, t: 0, dur: PUFF_DUR, r: this.enemyR });
     this.floatTexts.push({ x: target.x, y: target.y, text: `+${shown}`, color: e.fever && e.fever.active ? THEME.gold : THEME.correct, size: L.font(0.04), t: 0, dur: FLOAT_DUR });
     this.hitStop = HITSTOP;
     this.zoomT = ZOOM_DUR;
@@ -426,6 +427,7 @@ export const g07Shoot = {
   },
 
   render(ctx) {
+    drawPlayBackdrop(ctx, this.id, this.time || 0);
     this._drawFeverBg(ctx);
     if (this.engine.fever) {
       this.engine.fever.renderGauge(ctx, { x: L.safe, y: L.zone.gauge, w: L.W - L.safe * 2, h: L.gu(0.5) });
@@ -455,7 +457,7 @@ export const g07Shoot = {
 
     // 바닥 안내선(로봇이 지나가면 놓침). 중립적 점선.
     ctx.save();
-    ctx.strokeStyle = 'rgba(159,178,212,0.35)';
+    ctx.strokeStyle = '#5b879c99';
     ctx.lineWidth = L.gu(0.08);
     ctx.setLineDash([L.gu(0.5), L.gu(0.5)]);
     ctx.beginPath();
@@ -466,6 +468,9 @@ export const g07Shoot = {
 
     const z = this.zoomT > 0 ? 1 + ZOOM_MAX * (this.zoomT / ZOOM_DUR) : 1;
     ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, L.zone.problem + L.gu(2.8), L.W, L.H);
+    ctx.clip(); // 이동 물체/탄환은 문제·복습 안내 아래에서만 보인다.
     if (z !== 1) {
       const zx = L.W / 2;
       const zy = L.H * 0.6;
@@ -516,7 +521,7 @@ export const g07Shoot = {
       ctx.font = font(t.size);
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(t.text, t.x, t.y - prog * L.gu(2.2));
+      drawRewardText(ctx, t.text, t.x, Math.max(L.zone.problem + L.gu(3.5), t.y - prog * L.gu(2.2)));
       ctx.restore();
     }
 
@@ -526,6 +531,16 @@ export const g07Shoot = {
 
   _drawPuff(ctx, p) {
     const prog = p.t / p.dur;
+    // 정답 로봇만 짧게 기울어 정지한 뒤 연기로 변한다. 새 적 판정과는 독립.
+    if (p.value != null && p.t < 0.12) {
+      const stop = p.t / 0.12;
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(-0.18 * stop);
+      ctx.scale(1 + 0.12 * stop, 1 - 0.22 * stop);
+      drawRobot(ctx, 0, 0, p.r, String(p.value), 1 - stop);
+      ctx.restore();
+    }
     ctx.save();
     ctx.globalAlpha = Math.max(0, 0.5 * (1 - prog));
     ctx.fillStyle = '#d7deeb';
@@ -615,59 +630,12 @@ export const g07Shoot = {
 // ── 드로잉 헬퍼(모듈 로컬 — core 미수정) ──────────────────────
 // 숫자 로봇: 둥근 사각 몸통 + 안테나 + 숫자. 정답/오답 색 동일(정답 노출 금지).
 function drawRobot(ctx, x, y, r, label, alpha) {
-  ctx.save();
-  ctx.globalAlpha = alpha;
-  // 안테나
-  ctx.strokeStyle = 'rgba(255,255,255,0.5)';
-  ctx.lineWidth = Math.max(2, r * 0.06);
-  ctx.beginPath();
-  ctx.moveTo(x, y - r * 0.9);
-  ctx.lineTo(x, y - r * 1.35);
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.arc(x, y - r * 1.45, r * 0.14, 0, Math.PI * 2);
-  ctx.fillStyle = THEME.gold;
-  ctx.fill();
-  // 몸통(둥근 사각)
-  const w = r * 1.7;
-  const h = r * 1.5;
-  roundRectPath(ctx, x - w / 2, y - h / 2, w, h, r * 0.4);
-  ctx.fillStyle = THEME.accent;
-  ctx.fill();
-  ctx.strokeStyle = 'rgba(255,255,255,0.35)';
-  ctx.lineWidth = Math.max(2, r * 0.06);
-  ctx.stroke();
-  // 숫자
-  ctx.fillStyle = '#fff';
-  ctx.font = font(r * 0.9);
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(label, x, y + r * 0.02);
-  ctx.restore();
+  drawNumberRobot(ctx, x, y, r, label, alpha);
 }
 
 // 발사기(하단). 받침 + 포신.
 function drawLauncher(ctx, x, y, w, h) {
-  ctx.save();
-  // 포신
-  ctx.fillStyle = THEME.subtext;
-  const bw = w * 0.22;
-  roundRectPath(ctx, x - bw / 2, y - h * 0.9, bw, h * 0.9, bw * 0.4);
-  ctx.fill();
-  // 받침(둥근 사다리꼴 느낌 — 둥근 사각)
-  roundRectPath(ctx, x - w / 2, y - h * 0.2, w, h * 0.7, h * 0.25);
-  ctx.fillStyle = THEME.gold;
-  ctx.fill();
-  ctx.strokeStyle = 'rgba(0,0,0,0.2)';
-  ctx.lineWidth = 3;
-  ctx.stroke();
-  // 눈(친근하게)
-  ctx.fillStyle = '#2b3550';
-  ctx.beginPath();
-  ctx.arc(x - w * 0.12, y + h * 0.1, w * 0.05, 0, Math.PI * 2);
-  ctx.arc(x + w * 0.12, y + h * 0.1, w * 0.05, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.restore();
+  drawToyLauncher(ctx, x, y, w, h);
 }
 
 function roundRectPath(ctx, x, y, w, h, r) {
