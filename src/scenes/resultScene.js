@@ -6,6 +6,10 @@ import { oneLineEquation } from '../core/mathText.js';
 import * as ranking from '../core/ranking.js';
 import { promptNickname } from '../core/overlayInput.js';
 
+// 결과 화면 '의견 보내기' → 구글 폼(새 탭). ⚠️ 폼을 만든 뒤 이 URL만 바꾸면 된다.
+//   문항 예시: 1) 제일 재밌었던 게임 2) 어려웠던 점(주관식) 3) 학년.
+const FEEDBACK_FORM_URL = 'https://forms.gle/REPLACE_WITH_YOUR_FORM';
+
 export const resultScene = {
   enter(engine) {
     this.engine = engine;
@@ -29,6 +33,9 @@ export const resultScene = {
       label: '🏠 메뉴로',
     };
     this.hoverPt = null;
+
+    // 의견 보내기(작고 눈에 안 띄게 — 좌상단). 탭하면 구글 폼을 새 탭으로 연다.
+    this.feedbackBtn = { x: SAFE, y: SAFE, w: 200, h: 58, label: '💬 의견 보내기' };
 
     // ── 온라인 랭킹 등록 훅 (SPEC §랭킹) — 게임 파일은 건드리지 않고 결과 화면에서만 호출 ──
     this.rankBtn = { x: SAFE, y: this.retryBtn.y - 128, w: LOGICAL_W - SAFE * 2, h: 106 };
@@ -177,6 +184,19 @@ export const resultScene = {
       ctx.font = font(42);
       ctx.fillText(b.label, b.x + b.w / 2, b.y + b.h / 2);
     }
+
+    // 의견 보내기(작고 은은하게)
+    const fb = this.feedbackBtn;
+    roundRect(ctx, fb.x, fb.y, fb.w, fb.h, 16);
+    ctx.fillStyle = 'rgba(255,255,255,0.07)';
+    ctx.fill();
+    if (this.hoverPt && hit(fb, this.hoverPt.x, this.hoverPt.y)) {
+      ctx.fillStyle = 'rgba(255,255,255,0.12)';
+      ctx.fill();
+    }
+    ctx.fillStyle = THEME.subtext;
+    ctx.font = font(26, 'normal');
+    ctx.fillText(fb.label, fb.x + fb.w / 2, fb.y + fb.h / 2);
   },
 
   // 랭킹 상태줄 + 버튼(등록 가능하면 등록, 아니면 보기).
@@ -218,6 +238,18 @@ export const resultScene = {
 
   onTouch(x, y, phase) {
     if (phase !== 'end') return;
+    if (hit(this.feedbackBtn, x, y)) {
+      if (FEEDBACK_FORM_URL.includes('REPLACE')) {
+        this.engine.ui.showComboText('의견 폼 링크를 설정하세요', false);
+      } else {
+        try {
+          window.open(FEEDBACK_FORM_URL, '_blank', 'noopener');
+        } catch (e) {
+          /* 팝업 차단 등 — 무시 */
+        }
+      }
+      return;
+    }
     if (hit(this.rankBtn, x, y)) {
       if (this.rankStatus === 'canRank' && !this.submitted && !this.submitting) {
         this._register();
@@ -238,7 +270,7 @@ export const resultScene = {
 
   onHover(x, y) {
     this.hoverPt = { x, y };
-    return hit(this.retryBtn, x, y) || hit(this.menuBtn, x, y) || hit(this.rankBtn, x, y);
+    return hit(this.retryBtn, x, y) || hit(this.menuBtn, x, y) || hit(this.rankBtn, x, y) || hit(this.feedbackBtn, x, y);
   },
   clearHover() {
     this.hoverPt = null;
