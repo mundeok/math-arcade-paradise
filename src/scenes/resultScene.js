@@ -8,7 +8,7 @@ import { promptNickname } from '../core/overlayInput.js';
 
 // 결과 화면 '의견 보내기' → 구글 폼(새 탭). ⚠️ 폼을 만든 뒤 이 URL만 바꾸면 된다.
 //   문항 예시: 1) 제일 재밌었던 게임 2) 어려웠던 점(주관식) 3) 학년.
-const FEEDBACK_FORM_URL = 'https://forms.gle/REPLACE_WITH_YOUR_FORM';
+const FEEDBACK_FORM_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSdYyHTEP4BJHSIvHdMXuxDO1JMIldCIbhloA2m8eZLVmNb9og/viewform';
 
 export const resultScene = {
   enter(engine) {
