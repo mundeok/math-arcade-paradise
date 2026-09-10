@@ -6,7 +6,6 @@ import { LOGICAL_W, LOGICAL_H, SAFE, THEME, font, roundRect, hit } from '../core
 import { L } from '../core/layout.js';
 import { ScoreManager } from '../core/scoreManager.js';
 import { IMPLEMENTED, CATALOG, getGameById } from '../games/registry.js';
-import { dummyGame } from '../games/_dummy.js';
 import { drawGameCard, drawGameIcon } from '../art/toyArt.js';
 
 const LONGPRESS_SEC = 1.5; // 교사 설정 진입 롱프레스 시간 (학생 오조작 방지)
@@ -23,8 +22,9 @@ export const menuScene = {
   },
 
   _build() {
-    // 그리드 셀 = [더미] + 카탈로그 10종
-    const items = [{ id: dummyGame.id, name: dummyGame.name, emoji: dummyGame.emoji }, ...CATALOG];
+    // 그리드 셀 = 카탈로그 게임들. ⚠️ g00_dummy(Phase 0 인터페이스 검증용 테스트 게임)는 학생에게
+    //   노출할 이유가 없어 메뉴에서 숨긴다(파일·IMPLEMENTED는 참고용으로 유지, CATALOG엔 애초에 없음).
+    const items = [...CATALOG];
 
     const cols = 3;
     const gap = 20;
