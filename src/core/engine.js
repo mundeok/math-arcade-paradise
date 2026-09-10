@@ -265,6 +265,16 @@ export class Engine {
     if (this.fever) {
       this.fever.gainCorrect();
       this.fever.addPoints(pts);
+      // 단계 상승(SUPER/ULTRA) 연출 — fever.js는 무음이라 엔진이 문구+팡파르를 낸다(게임 멈추지 않음).
+      const up = this.fever.consumeStageChange();
+      if (up === 2) {
+        this.ui.showComboText('⚡ SUPER FEVER!', true);
+        this.sound.play('fanfare');
+      } else if (up === 3) {
+        this.ui.showComboText('🌟 ULTRA FEVER!', true);
+        this.sound.play('fanfare');
+        this.ui.flash('rgba(255,255,230,0.4)', 0.1);
+      }
     }
     // 피버 'easy' 오버라이드 동기화: 이 정답으로 피버가 막 발동했을 수 있고, 게임이 곧바로
     //   다음 문제를 로드하므로 여기서 즉시 갱신해 첫 피버 문제부터 쉬운 레벨이 나오게 한다.
@@ -392,24 +402,30 @@ export class Engine {
   //   "점수가 쏟아지는" 해방감을 만든다. 게임 좌표를 모르므로 상단 플레이 영역에 흩뿌린다.
   //   ⚠️ 어둡게·반전 없음(SPEC §2.5). 파티클 상한(200)은 particle.js가 자동 관리.
   _feverBurst(pts) {
-    const n = 2 + (Math.random() < 0.5 ? 1 : 0); // 2~3개
-    for (let i = 0; i < n; i++) {
+    // 단계별 강화: FEVER 2배 / SUPER 3배 / ULTRA 4배(점수 부양 개수·파티클 밀도). 1단계는 기존과 동일.
+    const stage = (this.fever && this.fever.stage) || 1;
+    const pops = 1 + stage + (Math.random() < 0.5 ? 1 : 0); // 1:2~3 / 2:3~4 / 3:4~5
+    const dens = (stage + 1) / 2; // 1 / 1.5 / 2 (파티클 밀도)
+    for (let i = 0; i < pops; i++) {
       const x = LOGICAL_W * (0.22 + Math.random() * 0.56);
       const y = LOGICAL_H * (0.3 + Math.random() * 0.22);
       this.ui.floatScore(x, y, `+${pts}`, { color: THEME.gold, size: 58 + Math.random() * 26 });
-      this.particles.emit(x, y, 'sparkle', THEME.gold, 14);
-      this.particles.emit(x, y, 'explode', '#ffe9a8', 12);
+      this.particles.emit(x, y, 'sparkle', THEME.gold, Math.round(14 * dens));
+      this.particles.emit(x, y, 'explode', '#ffe9a8', Math.round(12 * dens));
     }
+    if (stage >= 3) this.ui.shake(9, 0.1); // ULTRA 화면 흔들림 강화(상한 내)
   }
 
   // 피버 중 화면 가장자리 빛 번짐(재설계 §2.6). 'lighter' 합성으로 밝게만 — 어둡게/반전 금지(SPEC §2.5).
   //   1.5Hz 맥박(≤3/초, 광과민 안전). 중앙은 건드리지 않아 정답·HUD 가독성 유지.
   _renderFeverEdgeGlow(ctx) {
     const t = this.ui.time;
+    const stage = (this.fever && this.fever.stage) || 1;
     const pulse = 0.5 + 0.5 * Math.sin(t * Math.PI * 2 * 1.5); // 0~1, 1.5Hz
-    const a = 0.16 + 0.16 * pulse;
-    const ex = LOGICAL_W * 0.16;
-    const ey = LOGICAL_H * 0.12;
+    // 단계가 오를수록 빛 번짐을 넓고 강하게(FEVER 1.2 / SUPER 1.6 / ULTRA 2.0배). 어둡게·반전 없음(§2.5).
+    const a = (0.16 + 0.16 * pulse) * (0.8 + 0.4 * stage);
+    const ex = LOGICAL_W * (0.16 + 0.04 * (stage - 1));
+    const ey = LOGICAL_H * (0.12 + 0.03 * (stage - 1));
     ctx.save();
     ctx.globalCompositeOperation = 'lighter'; // 더 밝게만 (어둡게 불가)
     const fill = (grad) => {
@@ -432,6 +448,11 @@ export class Engine {
     g.addColorStop(0, `rgba(255,190,80,${a})`);
     g.addColorStop(1, 'rgba(255,190,80,0)');
     fill(g);
+    // ULTRA: 화면 전체 은은한 백색광(lighter 유지 → 밝게만). 낮은 알파로 정답·HUD 가독성 유지.
+    if (stage >= 3) {
+      ctx.fillStyle = `rgba(255,255,240,${(0.06 + 0.06 * pulse).toFixed(3)})`;
+      ctx.fillRect(0, 0, LOGICAL_W, LOGICAL_H);
+    }
     ctx.restore();
   }
 

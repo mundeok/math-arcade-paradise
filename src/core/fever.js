@@ -45,10 +45,18 @@ const DEFAULTS = {
   duration: 6, // 지속(초)
   rampDown: 0.3, // 종료 후 속도 복귀 램프(초)
   grace: 0.5, // 종료 직후 난이도 상승 미적용(초)
-  scoreMult: 3, // 피버 중 기본 점수 배수 (재설계: 2→3)
+  scoreMult: 3, // 피버(1단계) 기본 점수 배수 (재설계: 2→3)
   speedMult: 1.35, // 피버 중 속도 배수
   hitScale: 1.2, // 피버 중 판정 범위 배수(성공 가능성 유지)
   sizeScale: 1.1, // 피버 중 정답 크기 배수
+  // ── 3단계 피버(확장): FEVER → SUPER → ULTRA. 피버 중 정답 stageStep회마다 단계 상승. ──
+  stageStep: 8, // 단계 상승에 필요한 '피버 중 정답' 수 (8회 → SUPER, 16회 → ULTRA)
+  superScoreMult: 5, // 2단계(SUPER) 기본 점수 배수
+  ultraScoreMult: 8, // 3단계(ULTRA) 기본 점수 배수
+  stageDurationBonus: 4, // 단계 상승 시 지속시간 연장(초)
+  maxDuration: 14, // 총 지속 상한(6 + 4 + 4)
+  stageTrapRatios: [0.2, 0.1, 0], // 단계별 함정 비율(multi): FEVER 20% / SUPER 10% / ULTRA 0%(전부 배수)
+  ultraHitScale: 1.5, // ULTRA(easy) 판정 범위 추가 완화(게임이 hitScale 조회 시 반영)
   // 연타 보너스(재설계): 피버 중 짧은 간격 연속 정답이면 배수가 더 오른다.
   //   streakWindow 이내 2연속 → +1(4배), 3연속 이상 → +2(5배). 연속이 끊기면 기본 배수로 복귀.
   streakWindow: 1.0, // 직전 정답과 이 시간(초) 이내면 '연타'로 인정
@@ -76,6 +84,11 @@ export class Fever {
     this._streak = 0;
     this._lastStreakTime = null;
     this._streakMult = this.cfg.scoreMult;
+    // 3단계 상태: stage 0(비활성)/1(FEVER)/2(SUPER)/3(ULTRA). _feverCorrect=이번 피버 중 정답 수.
+    this.stage = 0;
+    this._feverCorrect = 0;
+    this._stageChangedTo = 0; // 이번 프레임에 막 오른 단계(엔진이 consumeStageChange로 소비 → 연출)
+    this._maxTimer = this.cfg.duration; // 현재 단계 기준 총 지속(시간 바 비율 계산용)
     // 'multi' 유형: 이번 피버의 단(dan). 발동 중이 아니면 null.
     this.dan = null;
   }
@@ -96,10 +109,43 @@ export class Fever {
     if (this.gauge >= this.cfg.threshold) this._start();
   }
   gainCorrect() {
-    this.gain(this.cfg.gainPerCorrect);
+    if (this.active) {
+      // 피버 중: 게이지 대신 '정답 수'를 누적해 단계 상승을 판정한다.
+      this._feverCorrect += 1;
+      this._maybeAdvanceStage();
+    } else {
+      this.gain(this.cfg.gainPerCorrect);
+    }
   }
   gainNearMissBonus() {
     this.gain(this.cfg.gainNearMiss);
+  }
+
+  // 피버 중 정답 수가 임계에 닿으면 단계를 올리고 지속시간을 연장한다(하강 없음).
+  //   8회 → SUPER(2), 16회 → ULTRA(3). 오를 때 timer +stageDurationBonus(총 maxDuration 상한).
+  _maybeAdvanceStage() {
+    const step = this.cfg.stageStep;
+    const target = this._feverCorrect >= step * 2 ? 3 : this._feverCorrect >= step ? 2 : 1;
+    if (target > this.stage) {
+      this.stage = target;
+      this.timer = Math.min(this.cfg.maxDuration, this.timer + this.cfg.stageDurationBonus);
+      this._maxTimer = Math.min(this.cfg.maxDuration, this._maxTimer + this.cfg.stageDurationBonus);
+      this._stageChangedTo = target; // 엔진이 소비해 "SUPER/ULTRA FEVER!" 연출
+    }
+  }
+
+  // 엔진이 매 정답 후 호출해 '막 오른 단계'를 소비한다(0이면 변화 없음). 연출은 엔진이(fever.js는 무음).
+  consumeStageChange() {
+    const s = this._stageChangedTo;
+    this._stageChangedTo = 0;
+    return s;
+  }
+
+  // 현재 단계의 기본 점수 배수(연타 보너스는 registerScoreStreak에서 이 위에 더해진다).
+  _stageBase() {
+    if (this.stage >= 3) return this.cfg.ultraScoreMult;
+    if (this.stage >= 2) return this.cfg.superScoreMult;
+    return this.cfg.scoreMult;
   }
   gainWrong() {
     this.gain(-this.cfg.lossWrong);
@@ -124,8 +170,9 @@ export class Fever {
       this._streak = 1;
     }
     this._lastStreakTime = now;
+    // 단계 기본 배수(3/5/8) 위에 연타 보너스(+0~+2)를 얹는다. 1단계는 3~5로 기존과 동일(하위 호환).
     const bonus = Math.min(this._streak - 1, this.cfg.streakBonusMax);
-    this._streakMult = this.cfg.scoreMult + bonus;
+    this._streakMult = this._stageBase() + bonus;
     return this._streakMult;
   }
   // 현재 연타 단계(연출용, 선택적 조회). 0=연타 아님, 1=2연속(4배), 2=3연속+(5배).
@@ -145,10 +192,17 @@ export class Fever {
     return 1;
   }
   get hitScale() {
-    return this.active ? this.cfg.hitScale : 1;
+    if (!this.active) return 1;
+    return this.stage >= 3 ? this.cfg.ultraHitScale : this.cfg.hitScale; // ULTRA(easy)는 판정 더 넉넉
   }
   get sizeScale() {
     return this.active ? this.cfg.sizeScale : 1;
+  }
+  // 단계별 함정 비율(multi 게임이 참조). fillValues가 자동 반영한다(게임 파일 수정 불필요).
+  //   FEVER 0.2 / SUPER 0.1 / ULTRA 0. 비활성이면 1단계 값을 반환(무해).
+  get trapRatio() {
+    const s = this.active && this.stage >= 1 ? this.stage : 1;
+    return this.cfg.stageTrapRatios[Math.min(s, 3) - 1];
   }
   // 종료 직후 grace 구간인가(게임이 난이도 상승을 잠깐 멈출 때 참조)
   get graceActive() {
@@ -158,12 +212,23 @@ export class Fever {
     return Math.max(0, Math.min(1, this.gauge / this.cfg.threshold));
   }
   get timeRatio() {
-    return this.active ? Math.max(0, Math.min(1, this.timer / this.cfg.duration)) : 0;
+    if (!this.active) return 0;
+    const max = this._maxTimer > 0 ? this._maxTimer : this.cfg.duration;
+    return Math.max(0, Math.min(1, this.timer / max));
+  }
+  // 다음 단계까지 남은 정답 수(게이지 표시용). 3단계면 0.
+  get correctToNextStage() {
+    if (!this.active || this.stage >= 3) return 0;
+    return Math.max(0, this.stage * this.cfg.stageStep - this._feverCorrect);
   }
 
   _start() {
     this.active = true;
     this.timer = this.cfg.duration;
+    this._maxTimer = this.cfg.duration;
+    this.stage = 1; // FEVER
+    this._feverCorrect = 0;
+    this._stageChangedTo = 0;
     this.pointsEarned = 0;
     // 연타 배수는 발동 시점에 초기화(기본 배수). 첫 피버 정답부터 연타 판정 시작.
     this._streak = 0;
@@ -178,6 +243,9 @@ export class Fever {
     this.gauge = 0;
     this.ramp = this.cfg.rampDown;
     this.graceUntil = this._time + this.cfg.grace;
+    this.stage = 0; // 단계 초기화(피버 종료 시)
+    this._feverCorrect = 0;
+    this._stageChangedTo = 0;
     this.dan = null;
     // 피버 종료가 콤보를 끊지 않는다(콤보는 scoreManager가 관리 — 여기선 아무 것도 리셋 안 함)
     if (typeof this.cfg.onExit === 'function') this.cfg.onExit(this.pointsEarned);
@@ -210,12 +278,15 @@ export class Fever {
     if (v % d === 0) v = d * 9 - 1; // 최후 안전값(거의 도달 안 함)
     return v;
   }
-  // n개의 값을 배수:함정 ≈ multiMultipleRatio 비율로 만들어 [{value, isMultiple}]로 반환(값 중복 없음, 셔플).
-  fillValues(n, { multipleRatio = this.cfg.multiMultipleRatio } = {}) {
+  // n개의 값을 배수:함정 비율로 만들어 [{value, isMultiple}]로 반환(값 중복 없음, 셔플).
+  //   ⚠️ multipleRatio 미지정 시 현재 단계의 trapRatio를 자동 반영한다(1 - trapRatio).
+  //      → 게임 파일 수정 없이 FEVER 80% / SUPER 90% / ULTRA 100%(전부 배수) 적용.
+  fillValues(n, { multipleRatio } = {}) {
     if (!this.active || this.type !== 'multi' || !this.dan) return [];
+    const ratio = multipleRatio != null ? multipleRatio : 1 - this.trapRatio;
     const out = [];
     const used = new Set();
-    const nMult = Math.max(1, Math.round(n * multipleRatio));
+    const nMult = ratio >= 1 ? n : Math.max(1, Math.round(n * ratio));
     let guard = 0;
     while (out.length < n && guard < n * 50) {
       guard++;
@@ -233,22 +304,51 @@ export class Fever {
   renderGauge(ctx, rect) {
     const { x, y, w, h } = rect;
     ctx.save();
+    // 트랙
     roundRect(ctx, x, y, w, h, h / 2);
     ctx.fillStyle = 'rgba(255,255,255,0.14)';
     ctx.fill();
 
     const ratio = this.active ? this.timeRatio : this.gaugeRatio;
-    const col = this.active ? THEME.gold : THEME.accent;
     if (ratio > 0) {
-      ctx.fillStyle = col;
       roundRect(ctx, x, y, w * ratio, h, h / 2);
+      // 채우기 중=파랑 / FEVER=금색 / SUPER=무지개 / ULTRA=백색광 (어둡게·반전 없음 §2.5)
+      if (this.active && this.stage >= 3) {
+        const g = ctx.createLinearGradient(x, 0, x + w, 0);
+        g.addColorStop(0, '#ffffff');
+        g.addColorStop(0.5, '#fff3bf');
+        g.addColorStop(1, '#ffffff');
+        ctx.fillStyle = g;
+      } else if (this.active && this.stage >= 2) {
+        const g = ctx.createLinearGradient(x, 0, x + w, 0);
+        g.addColorStop(0, '#ff5a7a');
+        g.addColorStop(0.25, '#ffb84a');
+        g.addColorStop(0.5, '#3ec18f');
+        g.addColorStop(0.75, '#4a9eff');
+        g.addColorStop(1, '#8b7bff');
+        ctx.fillStyle = g;
+      } else {
+        ctx.fillStyle = this.active ? THEME.gold : THEME.accent;
+      }
       ctx.fill();
     }
-    ctx.fillStyle = THEME.text;
+
+    // 라벨(단계명). ULTRA 바는 밝아 대비를 위해 어두운 글자.
+    const label = this.active ? (this.stage >= 3 ? '🌟 ULTRA!' : this.stage >= 2 ? '⚡ SUPER!' : '🔥 FEVER!') : 'FEVER';
+    ctx.fillStyle = this.active && this.stage >= 3 ? '#6b4e12' : THEME.text;
     ctx.font = font(Math.round(h * 0.72), 'normal');
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(this.active ? '🔥 FEVER!' : 'FEVER', x + w / 2, y + h / 2);
+    ctx.fillText(label, x + w / 2, y + h / 2);
+
+    // 다음 단계까지 남은 정답 수(작게, 바 아래) — 예: "SUPER까지 3"
+    const remain = this.correctToNextStage;
+    if (this.active && remain > 0) {
+      const nextName = this.stage >= 2 ? 'ULTRA' : 'SUPER';
+      ctx.fillStyle = THEME.gold;
+      ctx.font = font(Math.round(h * 0.62), 'normal');
+      ctx.fillText(`${nextName}까지 ${remain}`, x + w / 2, y + h + h * 0.9);
+    }
     ctx.restore();
   }
 }
