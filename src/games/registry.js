@@ -43,7 +43,7 @@ export const CATALOG = [
   { id: 'g05_match', name: '숫자 매칭', emoji: '🧩' },
   { id: 'g06_stack', name: '디저트 타워', emoji: '🥞' },
   { id: 'g07_shoot', name: '슈팅 계산', emoji: '💣' },
-  { id: 'g08_chain', name: '배수 체인', emoji: '🔗' },
+  { id: 'g08_chain', name: '배수 젤리 팡', emoji: '🔗' },
   { id: 'g09_balloon', name: '벌룬 팝', emoji: '🎈' },
   { id: 'g10_remain', name: '나머지 보물찾기', emoji: '💎' },
   { id: 'g11_farm', name: '곱셈 농장', emoji: '🌱' },

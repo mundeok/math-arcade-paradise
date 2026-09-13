@@ -90,21 +90,14 @@ test('높은 탑에서도 가시 낙하 시작점 보호와 기존 2.6초 예산
     g.stacked = Array(n).fill(3); g.camY = L.gu(0.3);
     assert.ok(g.fallDist > 0);
     assert.ok(g._catchY() - g.fallDist - g.fallBlockH / 2 - g.camY >= L.zone.problem + L.gu(4.6) - 0.001);
-    assert.ok(Math.abs(g.fallDist / g._fallSpeed() - 2.6) < 0.001);
+    assert.ok(Math.abs((g.fallDist - g.fallBlockH / 2) / g._fallSpeed() - 2.6) < 0.001);
   }
 });
 
-test('동일 위치에 생성된 8개 버블도 겹치지 않으며 속도는 변하지 않는다', () => {
-  const g = Object.create(g08Chain);
-  g.bubbles = Array.from({length:8}, (_, i) => ({ x: L.W / 2, y: L.zone.playBottom, vx: i + 1, vy: -2 }));
-  g._separateBubbles();
-  for (let i = 0; i < 8; i++) {
-    assert.equal(g.bubbles[i].vx, i + 1);
-    assert.equal(g.bubbles[i].vy, -2);
-    for (let j = i + 1; j < 8; j++) {
-      assert.ok(Math.hypot(g.bubbles[i].x-g.bubbles[j].x, g.bubbles[i].y-g.bubbles[j].y) >= 2*g.br);
-    }
-  }
+test('체인 고정 격자는 버블 크기보다 넓게 떨어져 있어 겹치지 않는다', () => {
+  const g=Object.create(g08Chain),r=g._layout();
+  for(let i=0;i<16;i++)for(let j=i+1;j<16;j++)
+    assert.ok(Math.hypot(r.points[i].x-r.points[j].x,r.points[i].y-r.points[j].y)>2*g.br);
 });
 
 test('피버 진입 0.45초, 일반 콤보 0.7초 이하; 확대 후에도 문구가 폭 안에 든다', () => {
