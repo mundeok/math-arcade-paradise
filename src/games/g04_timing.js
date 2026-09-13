@@ -286,7 +286,7 @@ export const g04Timing = {
   _refillNum(nm) {
     const fv = this.engine.fever;
     if (!fv || !fv.active || fv.type !== 'multi') return;
-    const ratio = (fv.cfg && fv.cfg.multiMultipleRatio) || 0.8;
+    const ratio = 1 - fv.trapRatio; // 단계별 함정 비율 반영(FEVER 0.8·SUPER 0.9·ULTRA 1.0=전부 배수)
     const v = Math.random() < ratio ? fv.randomMultiple() : fv.randomTrap();
     nm.value = v;
     nm.isMultiple = fv.isMultiple(v);

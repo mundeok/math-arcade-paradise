@@ -248,7 +248,7 @@ export const g09Balloon = {
   _spawnOneBalloonMulti() {
     const fv = this.engine.fever;
     if (!fv || !fv.active || fv.type !== 'multi') return null;
-    const ratio = (fv.cfg && fv.cfg.multiMultipleRatio) || 0.8;
+    const ratio = 1 - fv.trapRatio; // Claude의 FEVER/SUPER/ULTRA 단계별 정책 보존
     const value = Math.random() < ratio ? fv.randomMultiple() : fv.randomTrap();
     const rx = this.rx;
     const minX = L.safe + rx;

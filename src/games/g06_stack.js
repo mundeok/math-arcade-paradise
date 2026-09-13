@@ -301,7 +301,7 @@ export const g06Stack = {
   _spawnMultiBlock(initial, idx) {
     const fv = this.engine.fever;
     if (!fv || !fv.active || fv.type !== 'multi') return null;
-    const ratio = (fv.cfg && fv.cfg.multiMultipleRatio) || 0.8;
+    const ratio = 1 - fv.trapRatio; // 단계별 함정 비율 반영(FEVER 0.8·SUPER 0.9·ULTRA 1.0=전부 배수)
     const value = Math.random() < ratio ? fv.randomMultiple() : fv.randomTrap();
     const lanes = this._laneCenters();
     const x = lanes[Math.floor(Math.random() * lanes.length)];
