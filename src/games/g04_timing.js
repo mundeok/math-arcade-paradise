@@ -4,7 +4,8 @@
 //
 // 재미 표준(§2.6) core 사용:
 //   - fever:true → engine.fever. 피버 중 회전 빨라지되 판정 창(허용 각도)이 넓어져 성공 유지.
-//   - 위기 테두리·정답음·점수2배·게이지·카운트업 자동. 니어미스(=PERFECT)는 reportNearMiss.
+//   - 위기 테두리·정답음·점수2배·게이지·카운트업 자동. (니어미스는 쓰지 않는다 — PERFECT마다 붙으면
+//     상시 가산이 되어 점수가 부풀므로 제거했다. PERFECT는 최고 밴드 100점으로 보상.)
 //   - 정답 즉시 다음 문제(멈춤 없음). 손맛: 파티클 + 미세 확대 + 짧은 흔들림(§2.6 상한).
 //
 // 좌표·크기·폰트는 전부 core/layout.js 의 L 헬퍼로 계산한다(픽셀 리터럴 금지).
@@ -21,6 +22,8 @@ const MAX_ROT = 3; // 3회전 안에 못 맞히면 시간초과(무한 대기 �
 const TOL = { perfect: 5, good: 15, ok: 30 };
 const SCORE = { perfect: 100, good: 60, ok: 30 };
 const MULTI_RING = 8; // 피버(multi) 중 원 둘레 숫자 개수
+const MULTI_TAP_COOLDOWN = 0.15; // 피버 multi 연타 최소 간격(초). 링이 즉시 리필돼 초당 다수 정답이
+                                 //   쏟아지던 문제를 막는다(캐치·벌룬은 낙하/부양 속도가 자연 제한).
 
 export const g04Timing = {
   id: 'g04_timing',
@@ -106,6 +109,7 @@ export const g04Timing = {
     this.wasFever = false;
     this.feverBanner = null;
     this.multiMode = false; // 피버(multi) 중 '바늘 무관 배수 찾기' 모드
+    this.multiCooldown = 0; // 피버 multi 연타 게이트 잔여 시간(초)
     this._load();
   },
 
@@ -144,6 +148,7 @@ export const g04Timing = {
 
   update(dt) {
     this.time += dt;
+    if (this.multiCooldown > 0) this.multiCooldown = Math.max(0, this.multiCooldown - dt);
 
     // 피버 진입/종료 전이
     const fev = this.engine.fever;
@@ -202,6 +207,7 @@ export const g04Timing = {
 
     // 피버 multi: 바늘 무관, 탭 지점의 숫자를 배수 여부로 판정(연타). 함정 무해.
     if (this.multiMode) {
+      if (this.multiCooldown > 0) return; // 연타 최소 간격(초당 다수 정답 방지)
       let near = null;
       let best = Infinity;
       for (const nm of this.numbers) {
@@ -212,7 +218,10 @@ export const g04Timing = {
           near = nm;
         }
       }
-      if (near) this._judgeNum(near);
+      if (near) {
+        this._judgeNum(near);
+        this.multiCooldown = MULTI_TAP_COOLDOWN; // 다음 탭까지 최소 간격 확보
+      }
       return;
     }
 
@@ -252,8 +261,9 @@ export const g04Timing = {
       if (band === 'perfect') {
         // 고유 재미: 원 전체가 링으로 퍼짐
         this.perfectRing = { t: 0, dur: 0.45 };
-        // 니어미스 = PERFECT 판정 (SPEC): +40·게이지+5·큰 파티클
-        e.reportNearMiss(pos.x, pos.y);
+        // ⚠️ 니어미스(reportNearMiss)를 여기서 호출하지 않는다. PERFECT는 이미 최고 밴드 100점을
+        //    받으므로, 매 정답에 +40·게이지+5를 더하면 '드문 아슬아슬 보상'이 아니라 상시 가산이 되어
+        //    타이밍 게임 점수가 다른 게임 대비 비정상적으로 부풀었다(중앙값 대비 최고점 과대). 제거.
       }
       this._load(); // 멈춤 없이 다음 문제
     } else {

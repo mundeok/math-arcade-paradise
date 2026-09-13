@@ -12,7 +12,7 @@
 //   ⚠️ 제한시간 웨이브에서는 출제 레벨을 4 이하로 낮춘다(30초 안에 세 자리 곱셈은 3학년에게 무리).
 //   웨이브 4 이후는 마지막 구성(6vs7+30초)을 반복한다(무한 진행).
 //
-// 점수: 정답 매칭 50 + 콤보×5, 5연속(콤보 5의 배수) CHAIN! 점수 2배, 웨이브 완료 +200.
+// 점수: 정답 매칭 50 + 콤보×5, 5연속(콤보 5의 배수) CHAIN! 정액 +100 가산, 웨이브 완료 = 짝 수×34 정액(피버배수 미적용).
 //   오답 매칭: 라이프 -1 + 정답표시 1.2초. 제한시간 초과: 라이프 -1 + 웨이브 재시작.
 //
 // 재미 표준(§2.6): fever:true, 니어미스(제한시간 웨이브를 5초 이내 남기고 완료), 정답 즉시 진행,
@@ -308,7 +308,10 @@ export const g05Match = {
       const combo = e.scoreManager.combo;
       const newCombo = combo + 1;
       let pts = 50 + combo * 5;
-      if (newCombo % 5 === 0) pts *= 2; // CHAIN! 점수 2배(5연속)
+      // CHAIN(5연속): 정액 +100 가산. ⚠️ 곱셈(×2)이면 피버 배수(×8~10) 위에 곱해져 ×16~20이 되어
+      //   점수가 폭주한다. 피버 배수와 곱해지는 보너스는 피버 자체의 연타 보너스 하나로 충분하다.
+      if (newCombo % 5 === 0) pts += 100; // CHAIN!
+
       e.answerCorrect(problem, rightCard.value, pts); // 점수2배·게이지·정답음·콤보문구 자동
       const shown = pts * (e.fever && e.fever.active ? e.fever.scoreMultiplier : 1);
 
@@ -337,7 +340,6 @@ export const g05Match = {
   _clearWave() {
     const e = this.engine;
     const wave = this._wave();
-    const fmult = e.fever && e.fever.active ? e.fever.scoreMultiplier : 1;
 
     // 니어미스: 제한시간 웨이브를 5초 이내 남기고 완료(아슬아슬하게 정리)
     if (wave.timeLimit > 0 && this.timeLeft > 0 && this.timeLeft <= NEARMISS_TIME && !this.nearMissUsed) {
@@ -345,8 +347,9 @@ export const g05Match = {
       e.reportNearMiss(L.W / 2, L.y(0.5));
     }
 
-    // 웨이브 완료 +200 (콤보 판정 아님 → addPoints)
-    const bonus = Math.round(200 * fmult);
+    // 웨이브 완료 보너스: 웨이브 크기(짝 수)에 비례한 정액(3짝≈+100, 6짝≈+200). 콤보 판정 아님 → addPoints.
+    //   ⚠️ 피버 배수를 곱하지 않는다. 웨이브 주기가 짧아 피버 중 +200×배수가 반복 누적되면 점수가 폭주한다.
+    const bonus = Math.round(this.left.length * 34);
     e.scoreManager.addPoints(bonus);
     if (e.fever) e.fever.addPoints(bonus);
 
