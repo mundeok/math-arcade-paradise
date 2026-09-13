@@ -41,7 +41,7 @@ export const CATALOG = [
   { id: 'g03_racing', name: '레이싱 계산', emoji: '🚀' },
   { id: 'g04_timing', name: '타이밍 퍼즐', emoji: '🎯' },
   { id: 'g05_match', name: '숫자 매칭', emoji: '🧩' },
-  { id: 'g06_stack', name: '스택 빌더', emoji: '🏗️' },
+  { id: 'g06_stack', name: '디저트 타워', emoji: '🥞' },
   { id: 'g07_shoot', name: '슈팅 계산', emoji: '💣' },
   { id: 'g08_chain', name: '배수 체인', emoji: '🔗' },
   { id: 'g09_balloon', name: '벌룬 팝', emoji: '🎈' },

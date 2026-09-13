@@ -23,7 +23,7 @@ function setup() {
   return { g, e };
 }
 function receive(g, value, multi = false) {
-  const b = { value, x: g.towerX, y: g._catchY(), age: 1, correct: true };
+  const b = { value, x: g.towerX + g.perfectHalfW + L.gu(0.1), y: g._catchY(), age: 1, correct: true };
   if (multi) return g._catchMultiple(b);
   g._catchCorrect(b);
 }

@@ -134,11 +134,15 @@ export function drawGameIcon(c, id, x, y, size) {
       oval(c,-.22,-.04,.075,.075,CREAM); oval(c,.21,.04,.075,.075,CREAM);
       line(c,[[-.22,-.04],[.21,.04]],INK,.055); break;
     case 'g06_stack':
-      box(c,-.4,.23,.8,.15,.06,'#64bcb6',INK);
-      oval(c,-.25,.42,.095,.095,INK); oval(c,.25,.42,.095,.095,INK);
-      for(const [bx,by] of [[-.31,-.08],[.015,-.08],[-.14,-.4]]) {
-        box(c,bx,by,.3,.29,.035,'#edb46e',INK); box(c,bx+.12,by,.06,.29,.01,CREAM);
-      } break;
+      oval(c,0,.36,.46,.09,'#79b6b6');
+      for(const by of [.15,-.04,-.23]) {
+        box(c,-.36,by,.72,.2,.09,'#e9ad62',INK);
+        box(c,-.33,by,.66,.09,.045,'#fff4d3');
+      }
+      face(c,0,.18,.65);
+      oval(c,0,-.33,.12,.13,'#ef7388');
+      path(c,[[-.12,-.42],[0,-.38],[.1,-.45],[.02,-.46]],'#6cb79b');
+      star(c,.36,-.35,.09,'#e9ad62'); break;
     case 'g07_shoot':
       line(c,[[0,-.37],[0,-.52]],INK,.045); oval(c,0,-.53,.075,.075,'#ef9570');
       box(c,-.47,-.12,.12,.24,.04,'#6fcadf',INK); box(c,.35,-.12,.12,.24,.04,'#6fcadf',INK);
