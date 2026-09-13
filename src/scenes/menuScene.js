@@ -10,6 +10,17 @@ import { drawGameCard, drawGameIcon } from '../art/toyArt.js';
 
 const LONGPRESS_SEC = 1.5; // 교사 설정 진입 롱프레스 시간 (학생 오조작 방지)
 
+// 메뉴 순서 무작위화 (Fisher-Yates). 배열을 in-place로 섞는다.
+//   왜: 고정 순서에서는 앞쪽 카드만 반복 플레이되어(기록상 1~4위가 모두 앞줄) 뒤쪽 게임이 방치된다.
+//   메뉴에 들어올 때마다 다시 섞어, 돌아올 때마다 새 배치를 보여 다른 게임을 고르도록 유도한다.
+function shuffleInPlace(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
 export const menuScene = {
   enter(engine) {
     this.engine = engine;
@@ -24,7 +35,7 @@ export const menuScene = {
   _build() {
     // 그리드 셀 = 카탈로그 게임들. ⚠️ g00_dummy(Phase 0 인터페이스 검증용 테스트 게임)는 학생에게
     //   노출할 이유가 없어 메뉴에서 숨긴다(파일·IMPLEMENTED는 참고용으로 유지, CATALOG엔 애초에 없음).
-    const items = [...CATALOG];
+    const items = shuffleInPlace([...CATALOG]);
 
     const cols = 3;
     const gap = 20;
