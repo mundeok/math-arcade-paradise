@@ -2,7 +2,7 @@
 // 반사신경형(액션). 상단 문제 고정. 위에서 '숫자 로봇'이 내려오고, 정답 로봇만 멈춘다.
 // 확정 인터페이스(SPEC §7)만 사용한다. core/scenes는 절대 건드리지 않는다.
 //
-// ⚠️ 조작(사용자 지시로 SPEC §4 7️⃣에서 변경 — SPEC.md는 아직 자동 발사로 되어 있어 갱신 필요):
+// ⚠️ 조작: 수동 발사. 3차선 동시 출현과 일반 정답 5개 편대 돌파(SPEC §4 7️⃣).
 //   자동 발사를 없애고 플레이어가 발사 시점을 정한다. 자동 발사는 정답 레인 도착 전에 총알이 나가
 //   이동 중 오답 로봇을 맞혀 의도치 않게 실패하는 문제가 있었다. 그래서 '수동 발사'로 바꾼다.
 //   - 이동: 손가락 x를 따라 발사기가 이동(터치 start·move). ⚠️ 이동만으로는 절대 발사하지 않는다.
@@ -24,7 +24,8 @@
 
 import { L } from '../core/layout.js';
 import { THEME, font } from '../core/ui.js';
-import { drawNumberRobot, drawToyLauncher, drawPlayBackdrop, drawRewardText } from '../art/toyArt.js';
+import { drawNumberRobot, drawToyLauncher, drawPlayBackdrop } from '../art/toyArt.js';
+import { drawSquadStatus, drawAimGuide, drawRobotBurst, drawCaptainFrame } from '../art/shootArt.js';
 
 // ── 시간 상수(초). 정답 연출은 흐름을 멈추지 않는다(§2.6 상한 준수). ──
 const HITSTOP = 0.05; // 순간 정지(0.03~0.06)
@@ -39,6 +40,8 @@ const FIRE_COOLDOWN = 0.3; // 수동 발사 후 연사 방지 쿨다운(일반)
 const FEVER_COOLDOWN = 0.1; // 피버 중 연사 쿨다운(동시 3개 격추 위해 완화)
 const BASE_SEC = 4.2; // 콤보0에서 로봇이 화면을 내려오는 시간(재조정: 3.4→4.2, 3학년 조준 여유↑)
 const MIN_SEC = 2.2; // 하강 최소 시간(하드 클램프, 1.7→2.2로 상향)
+const SQUAD_TARGET = 5;
+const SQUAD_BONUS = 200;
 
 const NEARMISS_TTF = 0.35; // 바닥 닿기 0.35초 이내에 정지 → 니어미스
 const NEARMISS_DIST_RATIO = 0.1; // 또는 남은 거리 화면 높이 10% 이하
@@ -71,11 +74,11 @@ export const g07Shoot = {
     return L.y(0.8); // 로봇이 '바닥 도달'로 판정되는 선(발사기 위)
   },
   get topY() {
-    return L.zone.playTop + L.gu(1); // 로봇 하강 시작 영역 상단
+    return L.zone.problem + L.gu(2.8) + this.enemyR * 1.6; // 문제판 아래에서 로봇 전체가 보이는 시작점
   },
 
   tutorial: {
-    text: '좌우로 움직여서 정답 로봇 아래에 서고, 화면을 눌러 발사!',
+    text: '정답 로봇 아래로 조준하고 손을 떼면 발사! 5개를 맞히면 편대 돌파!',
     draw(ctx) {
       const cx = L.W / 2;
       ctx.textAlign = 'center';
@@ -110,6 +113,7 @@ export const g07Shoot = {
   },
 
   init(engine) {
+    this._detach?.();
     this.engine = engine;
     this.problem = null;
     this.enemies = []; // [{value, correct, x, y, judged, stopT}]
@@ -117,6 +121,13 @@ export const g07Shoot = {
     this.puffs = []; // 연기 구름 [{x,y,t,dur,r}]
     this.floatTexts = [];
     this.feverBanner = null;
+    this.squadProgress = 0;
+    this.squadsCleared = 0;
+    this.roundCaptain = false;
+    this.clearEffect = null;
+    this.recoil = 0;
+    this.armed = false;
+    this.roundSerial = 0;
 
     this.charX = L.W / 2;
     this.targetX = L.W / 2;
@@ -132,6 +143,7 @@ export const g07Shoot = {
     this.multiMode = false; // 피버(multi) 중 'N단 동시 3개 격추' 모드
 
     this._startRound();
+    this._bindCancellation();
   },
 
   _minX() {
@@ -141,13 +153,9 @@ export const g07Shoot = {
     return L.W - L.safe - this.enemyR;
   },
 
-  // 이번 라운드 로봇 수: 3 → 6 (콤보로 상승 = 축 B). 라이프1·피버 grace에서는 늘리지 않는다.
+  // 레인 폭을 유지하는 3개 후보. 대장 편대도 수와 판정 폭은 같다.
   _enemyCount() {
-    const e = this.engine;
-    let n = 3 + Math.floor(e.scoreManager.combo / 6);
-    if (e.scoreManager.lives <= 1) n = Math.min(n, 3);
-    if (e.fever && e.fever.graceActive) n = Math.min(n, 4);
-    return Math.max(3, Math.min(6, n));
+    return 3; // 일정한 조준 폭. 난도는 계산/하강 속도로 높이고 레인을 잘게 쪼개지 않는다.
   },
 
   // 하강 속도(px/s). 콤보 단계 + 피버 배속(램프/grace 반영). 난이도는 속도·혼동값으로만(§2.5).
@@ -163,17 +171,20 @@ export const g07Shoot = {
     let sec = BASE_SEC / step;
     sec *= e.settings.timeScale || 1; // 제한시간 배율(높을수록 느리게 = 쉽게)
     if (sec < MIN_SEC) sec = MIN_SEC;
-    return L.H / sec;
+    return (this.floorY - this.enemyR - this.topY) / sec;
   },
 
-  // 피버 중 정답 로봇은 크기·판정을 core 계수로 넉넉하게(성공 가능성 유지). 오답 로봇은 그대로.
+  // 정답 여부로 크기를 바꾸지 않는다.
   _visR(enemy) {
-    const fev = this.engine.fever;
-    return enemy.correct && fev && fev.active ? this.enemyR * fev.sizeScale : this.enemyR;
+    return this.enemyR; // 모든 로봇의 외형/조준 폭이 동일해 정답을 노출하지 않는다.
   },
 
   _startRound() {
     const e = this.engine;
+    this.bullets = []; // 이전 문제 탄환으로 새 오답을 맞히는 사고 방지
+    this.armed = false;
+    this.roundSerial += 1;
+    this.roundCaptain = this.squadProgress === SQUAD_TARGET - 1;
     this.problem = e.problemGenerator.nextProblem({ maxLevel: this.maxLevel, blankRatio: this.blankRatio, opMode: this.opMode });
 
     const n = this._enemyCount();
@@ -189,10 +200,9 @@ export const g07Shoot = {
     const minX = this._minX();
     const maxX = this._maxX();
     const laneW = (maxX - minX) / items.length;
-    const stag = L.gu(3.2);
     this.enemies = items.map((it, i) => {
       const x = minX + laneW * (i + 0.5);
-      const y = this.topY - this.enemyR - i * stag - Math.random() * L.gu(1.2);
+      const y = this.topY; // 동시에 보여 줘 계산 후 바로 조준할 수 있다.
       return { value: it.value, correct: it.correct, x, y, judged: false, stopT: 0 };
     });
 
@@ -219,6 +229,11 @@ export const g07Shoot = {
 
     if (this.hitStop > 0) this.hitStop = Math.max(0, this.hitStop - dt);
     if (this.zoomT > 0) this.zoomT = Math.max(0, this.zoomT - dt);
+    if (this.recoil > 0) this.recoil = Math.max(0, this.recoil - dt);
+    if (this.clearEffect) {
+      this.clearEffect.t += dt;
+      if (this.clearEffect.t >= this.clearEffect.dur) this.clearEffect = null;
+    }
 
     // 발사기 이동(손가락/키 목표로 부드럽게 수렴)
     const k = Math.min(1, dt * 14);
@@ -235,19 +250,22 @@ export const g07Shoot = {
 
     // 탄환 상승 + 충돌
     const bulletSpeed = L.H / 0.5;
-    for (const b of this.bullets) b.y -= bulletSpeed * dt;
+    for (const b of this.bullets) { b.prevY = b.y; b.y -= bulletSpeed * dt; }
     this._resolveHits();
+    if (this.engine.freeze?.active || this.engine.state === 'RESULT') return;
     this.bullets = this.bullets.filter((b) => b.y > this.topY - L.gu(3));
 
     if (this.multiMode) {
       // 피버: 격추됐거나 바닥을 지난 로봇 제거(놓쳐도 무해). 3개 다 사라지면 다음 3개 동시 하강.
       this.enemies = this.enemies.filter((en) => !en.judged && en.y - this.enemyR <= this.floorY);
-      if (this.enemies.length === 0) this._startRoundMulti();
+      // 배수를 모두 격추했으면 함정이 지나가길 기다리지 않고 다음 편대.
+      if (!this.enemies.some(en => en.isMultiple)) this._startRoundMulti();
     } else {
       // 정답 로봇이 바닥 도달 → 라이프 -1 + 정답표시(놓쳤으니 짚어줌)
       const correct = this.enemies.find((en) => en.correct && !en.judged);
       if (correct && correct.y + this.enemyR >= this.floorY) {
         correct.judged = true;
+        this.bullets = []; this.armed = false; this.hitStreak = 0;
         this.engine.answerWrong(this.problem, null, { loseLife: true, onResume: () => this._startRound() });
         return;
       }
@@ -274,6 +292,7 @@ export const g07Shoot = {
     if (this.fireCooldown > 0) return; // 연사 방지
     const e = this.engine;
     const feverActive = !!(e.fever && e.fever.active);
+    if (this.multiMode !== feverActive || e.freeze?.active) return; // 전환 프레임에 이전 모드 탄환을 만들지 않는다.
     // ⚠️ 탭 한 번 = 한 발(조준 필요). 피버 중엔 쿨다운만 짧아져(0.1초) 빠르게 재발사할 수 있다.
     this.fireCooldown = feverActive ? FEVER_COOLDOWN : FIRE_COOLDOWN;
     // 탄환은 발사 순간 발사기 레인(x 고정)으로만 직진 → 다른 레인 로봇엔 맞지 않는다(조준 유지).
@@ -281,7 +300,9 @@ export const g07Shoot = {
     const grow = 1 + Math.min(1.2, this.hitStreak * 0.12);
     const r = L.w(0.016) * grow * (feverActive ? 1.3 : 1);
     const muzzleY = this.charY - this.charH / 2;
-    this.bullets.push({ x: this.charX, y: muzzleY, r, fever: feverActive });
+    this.bullets.push({ x: this.charX, y: muzzleY, prevY: muzzleY, r, fever: feverActive, round: this.roundSerial });
+    this.recoil = 0.12;
+    e.sound.tone?.(260, 0, 0.055, {type:'triangle',vol:0.07,sweepTo:180});
     if (feverActive) {
       // 총구 화염(화려한 연사 연출)
       e.particles.emit(this.charX, muzzleY, 'sparkle', THEME.gold, 8);
@@ -294,6 +315,7 @@ export const g07Shoot = {
   _resolveHits() {
     for (let bi = this.bullets.length - 1; bi >= 0; bi--) {
       const b = this.bullets[bi];
+      if (b.round != null && b.round !== this.roundSerial) { this.bullets.splice(bi, 1); continue; }
       let hit = null;
       let bestY = -Infinity; // 가장 아래(먼저 만나는) 로봇
       for (const en of this.enemies) {
@@ -301,7 +323,8 @@ export const g07Shoot = {
         // x는 로봇 몸통 안(레인 일치)일 때만 맞는다 → 다른 레인 로봇엔 안 맞음.
         // y는 탄환이 로봇 높이에 닿았는지.
         const er = this._visR(en);
-        if (Math.abs(en.x - b.x) <= er && Math.abs(en.y - b.y) <= er + b.r) {
+        const crossed = b.y - b.r <= en.y + er && (b.prevY ?? b.y) + b.r >= en.y - er;
+        if (Math.abs(en.x - b.x) <= er && crossed) {
           if (en.y > bestY) {
             bestY = en.y;
             hit = en;
@@ -321,6 +344,8 @@ export const g07Shoot = {
   // ── 피버 multi: "N단!" 동시 3개 격추 ──────────────────────
   _enterMulti() {
     this.multiMode = true;
+    this.armed = false;
+    this.roundCaptain = false;
     this.bullets = [];
     this._startRoundMulti();
   },
@@ -328,17 +353,21 @@ export const g07Shoot = {
     this.multiMode = false;
     this.enemies = [];
     this.bullets = [];
+    this.armed = false;
+    this.puffs = []; this.floatTexts = []; // 배수 로봇 잔상도 일반 판정과 시각적으로 분리
     this._startRound(); // 일반 배치 복귀
   },
   // 3개를 한 줄로(같은 y) 동시에 하강. 값은 fillValues(80% 배수 + 20% 함정).
   //   ⚠️ correct 플래그를 세우지 않는다 → _visR 확대(정답 노출) 방지. 판정은 isMultiple로 한다.
   _startRoundMulti() {
     const fv = this.engine.fever;
+    this.bullets = []; this.armed = false; this.roundSerial += 1;
+    if (!fv?.active) { this.enemies = []; return; }
     const items = fv.fillValues(3);
     const minX = this._minX();
     const maxX = this._maxX();
     const laneW = (maxX - minX) / 3;
-    const y = this.topY - this.enemyR;
+    const y = this.topY;
     this.enemies = items.map((it, i) => ({ value: it.value, correct: false, isMultiple: it.isMultiple, x: minX + laneW * (i + 0.5), y, judged: false, stopT: 0 }));
     this.fireCooldown = 0;
   },
@@ -349,12 +378,12 @@ export const g07Shoot = {
     if (fv.isMultiple(en.value)) {
       const q = Math.round(en.value / dan);
       const prob = { a: dan, b: q, op: '×', answer: en.value, remainder: null, text: `${dan} × ${q}`, blank: null, level: 1 };
-      e.answerCorrect(prob, en.value, 50 + e.scoreManager.combo * 10); // 점수배수·게이지·정답음 자동(무적)
+      const shown = this._award(prob, en.value, 50 + e.scoreManager.combo * 10);
       this.hitStreak += 1;
       e.particles.emit(en.x, en.y, 'sparkle', THEME.gold, 16);
       e.particles.emit(en.x, en.y, 'explode', THEME.accent, 16);
       this.puffs.push({ x: en.x, y: en.y, value: en.value, t: 0, dur: PUFF_DUR, r: this.enemyR });
-      this.floatTexts.push({ x: en.x, y: en.y, text: `+${Math.round((50 + e.scoreManager.combo * 10) * fv.scoreMultiplier)}`, color: THEME.gold, size: L.font(0.038), t: 0, dur: FLOAT_DUR });
+      this.floatTexts.push({ x: en.x, y: en.y, text: `+${shown}`, color: THEME.gold, size: L.font(0.038), t: 0, dur: FLOAT_DUR });
       this.hitStop = HITSTOP;
       e.sound.play('pop');
     } else {
@@ -374,9 +403,17 @@ export const g07Shoot = {
     const ttf = this.curSpeed > 0 ? remaining / this.curSpeed : 999;
     const nearMiss = !this.nearMissUsed && (ttf <= NEARMISS_TTF || remaining <= L.H * NEARMISS_DIST_RATIO);
 
-    const base = 50 + combo * 10;
-    e.answerCorrect(this.problem, target.value, base); // 점수2배·게이지·정답음·콤보문구·위기밝힘 자동
-    const shown = base * (e.fever && e.fever.active ? e.fever.scoreMultiplier : 1);
+    const captain = this.roundCaptain;
+    this.squadProgress += 1;
+    const cleared = this.squadProgress >= SQUAD_TARGET;
+    const base = 50 + combo * 10 + (cleared ? SQUAD_BONUS : 0);
+    const shown = this._award(this.problem, target.value, base);
+    if (cleared) {
+      this.squadsCleared += 1; this.squadProgress = 0;
+      this.clearEffect = {t:0,dur:0.65,number:this.squadsCleared};
+      this._compactMessage(`편대 ${this.squadsCleared} 돌파! +${SQUAD_BONUS}`);
+      e.sound.play('combo');
+    }
 
     if (nearMiss) {
       this.nearMissUsed = true;
@@ -389,7 +426,7 @@ export const g07Shoot = {
     e.particles.emit(target.x, target.y, 'sparkle', THEME.gold, Math.round((nearMiss ? 22 : 16) * mult));
     e.particles.emit(target.x, target.y, 'explode', THEME.accent, Math.round(18 * mult));
     e.particles.emit(target.x, target.y, 'pop', '#ffffff', Math.round(10 * mult));
-    this.puffs.push({ x: target.x, y: target.y, value: target.value, t: 0, dur: PUFF_DUR, r: this.enemyR });
+    this.puffs.push({ x: target.x, y: target.y, value: target.value, captain, t: 0, dur: PUFF_DUR, r: this.enemyR });
     this.floatTexts.push({ x: target.x, y: target.y, text: `+${shown}`, color: e.fever && e.fever.active ? THEME.gold : THEME.correct, size: L.font(0.04), t: 0, dur: FLOAT_DUR });
     this.hitStop = HITSTOP;
     this.zoomT = ZOOM_DUR;
@@ -403,9 +440,43 @@ export const g07Shoot = {
   _judgeWrong(target) {
     const e = this.engine;
     this.hitStreak = 0; // 연속 격추 끊김(탄환 크기 리셋)
+    this.bullets = []; this.armed = false;
     // 연기(정지) 표시 후 core가 1.2초 정답표시. onResume에서 다음 라운드.
     this.puffs.push({ x: target.x, y: target.y, t: 0, dur: PUFF_DUR, r: this.enemyR });
     e.answerWrong(this.problem, target.value, { loseLife: true, onResume: () => this._startRound() });
+  },
+
+  _award(problem, value, points) {
+    const e = this.engine, before = e.scoreManager.score, floats = e.ui.floatScores?.length || 0;
+    e.answerCorrect(problem, value, points);
+    e.ui.floatScores?.splice(floats); // 게임 자체 명중 위치 표시와 중복 방지
+    for (const o of e.ui.comboOverlays || []) { o.compact = true; o.big = false; }
+    return e.scoreManager.score - before; // 발동 프레임/콤보 증가 뒤에도 실제 득점과 일치
+  },
+  _compactMessage(text) {
+    this.engine.ui.showComboText(text, false);
+    for (const o of this.engine.ui.comboOverlays || []) { o.compact = true; o.big = false; }
+  },
+
+  _bindCancellation() {
+    const c = this.engine.canvas;
+    if (!c?.addEventListener || typeof window === 'undefined') return;
+    const cancel = () => { this.armed = false; };
+    const key = e => { if (['Escape','p','P'].includes(e.key)) cancel(); };
+    const start = e => {
+      const p = e.touches?.[0] || e, r = c.getBoundingClientRect();
+      if ((p.clientY-r.top)*L.H/r.height < L.zone.problem + L.gu(2.8)) cancel();
+    };
+    c.addEventListener('touchcancel', cancel, true);
+    c.addEventListener('touchstart', start, true); c.addEventListener('mousedown', start, true);
+    window.addEventListener('blur', cancel); window.addEventListener('keydown', key, true);
+    document.addEventListener('visibilitychange', cancel);
+    this._detach = () => {
+      c.removeEventListener('touchcancel', cancel, true);
+      c.removeEventListener('touchstart', start, true); c.removeEventListener('mousedown', start, true);
+      window.removeEventListener('blur', cancel); window.removeEventListener('keydown', key, true);
+      document.removeEventListener('visibilitychange', cancel); this._detach = null;
+    };
   },
 
   _haptic(ms) {
@@ -452,6 +523,10 @@ export const g07Shoot = {
         ctx.font = font(L.font(0.026));
         ctx.fillStyle = THEME.gold;
         ctx.fillText('🔁 다시 도전!', cx, L.zone.problem + L.gu(1.7));
+      } else {
+        ctx.fillStyle = this.roundCaptain ? THEME.gold : THEME.subtext;
+        ctx.font = font(L.font(0.025));
+        ctx.fillText(this.roundCaptain ? '대장 편대! 정답 하나로 돌파!' : `${this.squadsCleared + 1}편대 · 정답 로봇을 조준!`, cx, L.zone.problem + L.gu(1.7));
       }
     }
 
@@ -479,6 +554,8 @@ export const g07Shoot = {
       ctx.translate(-zx, -zy);
     }
 
+    drawAimGuide(ctx, this.charX, this.topY, this.charY - this.charH, this.recoil);
+
     // 탄환(위로 향하는 빛). 피버 탄환은 궤적 잔상 + 더 밝은 광채.
     for (const b of this.bullets) {
       ctx.save();
@@ -503,27 +580,22 @@ export const g07Shoot = {
       if (en.judged) continue;
       if (en.y < this.topY - this.enemyR * 2) continue;
       drawRobot(ctx, en.x, en.y, this._visR(en), String(en.value), 1);
+      if (this.roundCaptain && !this.multiMode) drawCaptainFrame(ctx, en.x, en.y, this.enemyR);
     }
 
     // 발사기
-    drawLauncher(ctx, this.charX, this.charY, this.charW, this.charH);
+    ctx.save();
+    ctx.translate(this.charX, this.charY);
+    ctx.scale(1 + this.recoil * 0.3, 1 - this.recoil * 0.65);
+    drawLauncher(ctx, 0, 0, this.charW, this.charH);
+    ctx.restore();
 
     // 연기 구름(정지 연출 — 비현실 표현)
     for (const p of this.puffs) this._drawPuff(ctx, p);
     ctx.restore();
 
-    // 부양 점수
-    for (const t of this.floatTexts) {
-      const prog = t.t / t.dur;
-      ctx.save();
-      ctx.globalAlpha = Math.max(0, 1 - prog);
-      ctx.fillStyle = t.color;
-      ctx.font = font(t.size);
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      drawRewardText(ctx, t.text, t.x, Math.max(L.zone.problem + L.gu(3.5), t.y - prog * L.gu(2.2)));
-      ctx.restore();
-    }
+    // 점수는 하단 전용 줄에 표시해 새 숫자 로봇과 겹치지 않는다.
+    drawSquadStatus(ctx, this.squadProgress, this.squadsCleared, this.multiMode, this.clearEffect, this.fireCooldown, this.floatTexts.at(-1)?.text);
 
     this._drawFeverBanner(ctx);
     // 위기 테두리는 ui가 자동으로 그린다.
@@ -531,6 +603,7 @@ export const g07Shoot = {
 
   _drawPuff(ctx, p) {
     const prog = p.t / p.dur;
+    if (p.value != null) drawRobotBurst(ctx, p.x, p.y, p.r, prog, p.captain);
     // 정답 로봇만 짧게 기울어 정지한 뒤 연기로 변한다. 새 적 판정과는 독립.
     if (p.value != null && p.t < 0.12) {
       const stop = p.t / 0.12;
@@ -583,12 +656,12 @@ export const g07Shoot = {
     ctx.globalAlpha = prog < 0.7 ? 1 : Math.max(0, 1 - (prog - 0.7) / 0.3);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = font(L.font(0.07));
+    ctx.font = font(L.font(0.032));
     ctx.lineWidth = L.gu(0.25);
     ctx.strokeStyle = 'rgba(0,0,0,0.55)';
-    ctx.strokeText(`FEVER +${b.points}`, L.W / 2, L.H * 0.44);
+    ctx.strokeText(`FEVER +${b.points}`, L.W / 2, L.zone.problem + L.gu(3.25));
     ctx.fillStyle = THEME.gold;
-    ctx.fillText(`FEVER +${b.points}`, L.W / 2, L.H * 0.44);
+    ctx.fillText(`FEVER +${b.points}`, L.W / 2, L.zone.problem + L.gu(3.25));
     ctx.restore();
   },
 
@@ -596,19 +669,25 @@ export const g07Shoot = {
   //   이동: 손가락 x를 따라(터치 start·move). 발사: 손가락을 뗄 때(탭/드래그 릴리즈) 또는 스페이스바.
   //   ⚠️ 이동 중(start·move)에는 절대 발사하지 않는다 → 의도치 않은 오폭 방지.
   onTouch(x, y, phase) {
-    if (phase === 'start' || phase === 'move') {
+    const inPlay = y >= L.zone.problem + L.gu(2.8) && y <= L.H && x >= 0 && x <= L.W;
+    if (phase === 'start') {
+      this.armed = inPlay;
+      if (this.armed) this.targetX = clamp(x, this._minX(), this._maxX());
+    } else if (phase === 'move' && this.armed) {
       this.targetX = clamp(x, this._minX(), this._maxX());
     } else if (phase === 'end') {
-      // 뗀 자리로 발사기를 확정하고 그 레인으로 발사(드래그로 이동 후 떼면 그 자리에서 발사).
+      const fire = this.armed && inPlay;
+      this.armed = false;
+      if (!fire) return;
       this.charX = this.targetX = clamp(x, this._minX(), this._maxX());
       this._fire();
     }
   },
   onKey(e) {
     const step = L.w(0.14);
-    if (e.key === 'ArrowLeft') this.targetX = clamp(this.targetX - step, this._minX(), this._maxX());
-    else if (e.key === 'ArrowRight') this.targetX = clamp(this.targetX + step, this._minX(), this._maxX());
-    else if (e.code === 'Space' || e.key === ' ' || e.key === 'Spacebar') this._fire();
+    if (e.key === 'ArrowLeft' || e.key?.toLowerCase() === 'a') this.targetX = clamp(this.targetX - step, this._minX(), this._maxX());
+    else if (e.key === 'ArrowRight' || e.key?.toLowerCase() === 'd') this.targetX = clamp(this.targetX + step, this._minX(), this._maxX());
+    else if ((e.code === 'Space' || e.key === ' ' || e.key === 'Spacebar') && !e.repeat) this._fire();
   },
   // 이 게임은 이동/발사만 하므로 hover 클릭요소 없음(커서 기본).
   onHover() {
@@ -617,6 +696,8 @@ export const g07Shoot = {
   clearHover() {},
 
   destroy() {
+    this._detach?.();
+    this.clearEffect = null; this.armed = false;
     this.engine = null;
     this.problem = null;
     this.enemies = [];
