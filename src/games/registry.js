@@ -40,7 +40,7 @@ export const CATALOG = [
   { id: 'g02_catch', name: '떨어지는 캐치', emoji: '🎪' },
   { id: 'g03_racing', name: '레이싱 계산', emoji: '🚀' },
   { id: 'g04_timing', name: '타이밍 퍼즐', emoji: '🎯' },
-  { id: 'g05_match', name: '숫자 매칭', emoji: '🧩' },
+  { id: 'g05_match', name: '동물 간식 배달', emoji: '🍪' },
   { id: 'g06_stack', name: '디저트 타워', emoji: '🥞' },
   { id: 'g07_shoot', name: '슈팅 계산', emoji: '💣' },
   { id: 'g08_chain', name: '배수 젤리 팡', emoji: '🔗' },
