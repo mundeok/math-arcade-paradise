@@ -1,60 +1,23 @@
-// g10_treasure.js — 💎 나머지 보물찾기 (SPEC §4 🔟 / Phase 5, 개정안)
-// 나눗셈 심화. 확정 인터페이스(SPEC §7)만 사용한다. core/scenes는 절대 건드리지 않는다.
-//
-// ⚠️ 개정안(원안 폐기): 원안은 "보물상자에서 몫 선택 → 보석에서 나머지 선택"의 2단계 객관식이었다.
-//   개정 이유 — 2단계 객관식은 '정답 선택에 그림만 입힌 구조'라 나눗셈의 '의미'가 드러나지 않는다.
-//   개정안은 숫자를 고르는 대신 '실제로 나누는 행동'을 한다: 보석을 해적들에게 똑같이 배분하고,
-//   더 못 나누면 [다 나눴어요!]를 누른다 → 화면에 식이 조립된다 (17 ÷ 5 = 3 … 2).
-//
-// ⚠️ 배분 조작 방식(택1): '해적 탭 → 그 해적이 보석 1개 받음' 을 채택했다(원안 후보 중 단순한 쪽).
-//   근거: 아이가 '누구에게 몇 개를 줄지'를 직접 정하고 각 해적의 개수가 커지는 걸 눈으로 보게 되어
-//   "몇 개씩 갔는지"가 그대로 드러난다(교육 목적에 부합). 속도 보완은 '해적 길게 누르기' 대신
-//   [🔄 한 바퀴 돌리기] 버튼(모든 해적에게 하나씩 동시 배분)을 택했다 — 태블릿에서 롱프레스보다
-//   오조작이 적고, 똑같이 나누기가 빨라 균등 배분을 자연히 유도한다. 배분을 처음부터 다시 하려면
-//   [↺ 다시 담기]로 모든 보석을 통에 되돌린다.
-//
-// 판정: 각 해적이 똑같은 수 q개씩 받고 남은 보석이 divisor보다 적으면 정답(= q개씩, 나머지 r).
-//   - 똑같이 안 나눔 → 어느 해적이 더 받았는지 표시 + 재시도(라이프 유지, 배분 실수는 계산 오류 아님)
-//   - 더 나눌 수 있음(남은 보석 ≥ 해적 수) → "아직 더 나눌 수 있어요" + 재시도(라이프 유지)
-//   라이프는 시간초과(판정 오류)와 Lv5 예측 실패로만 깎인다.
-//
-// ⚠️ 레벨별 배분 제한(축 A — 버튼 누르기가 아니라 나눗셈을 하게):
-//   - Lv1~2·피버: '한 바퀴 돌리기' 자유.
-//   - Lv3~4: 돌리기 3번 제한(_roundLimitFor), 다 쓰면 해적 탭으로 직접 배분(버튼은 비활성화하지 않고 안내).
-//   - Lv5: 돌리기 없음. "몇 개씩 갈까?"를 [−]/[+]로 예측 → 예측값으로 자동 배분 → 몫과 같으면 통과,
-//     다르면 라이프 -1(예측 모드, this.predict).
-// ⚠️ 오버(남은 보석 < 해적 수인데 배분 시도) 처리 — 라이프 대신 학습/시간으로:
-//   - 배분은 일어나지 않고 "n개로는 m명에게 못 나눠요" 안내. 라이프 X. ⚠️ 버튼/해적을 비활성화하지 않는다
-//     ('더 못 나누는 지점을 스스로 아는 것'이 나머지 개념의 핵심).
-//   - 개별 해적 탭도 동일: 가장 적게 받은 해적에게만 줄 수 있어(_giveOne) 균등이 깨지지 않는다.
-//   - 긴장은 시간으로: 오버 시도마다 제한시간 차감(OVER_PENALTY_SEC). 오버 없이 완료하면 +100(NO_OVER_BONUS).
-//
-// ⚠️ 이 게임은 '보석 수·해적 수'가 개정안 난이도 밴드로 정해지므로(원안 나눗셈 사다리는 피제수가
-//   너무 커서 손으로 배분 불가 — 96개 배분은 무리), g08처럼 게임이 숫자를 직접 생성해 나눗셈
-//   '사실 객체'를 만들어 answerCorrect/timeUp 에 넘긴다. 세션·복습큐·레벨조정은 core가 처리.
-//   밴드 선택에는 problemGenerator.currentLevel(공개 필드)을 읽는다(=어떤 크기의 나눗셈을 낼지).
-//
-// 재미 표준(§2.6): fever:true, comboMilestones, L 헬퍼 좌표, 손맛.
-//   니어미스: 제한시간을 넉넉히 남기고 완료. 고유 재미: 배분이 끝나는 순간 식이 조립되는 연출 +
-//   나머지 보석이 보물상자로 들어가며 반짝임.
-//
-// 개념 설명 화면(이 게임만): 첫 진입 1회 자동, 이후 [❓개념] 버튼으로 재접근.
-//   ⚠️ 원안/개정안은 "튜토리얼 화면의 [개념 다시보기]"를 말하지만 tutorialScene은 core라 수정 금지.
-//   대신 재접근 버튼을 '게임 화면 안'에 두어 같은 의도(언제든 개념 재확인)를 충족한다.
+// g10_treasure.js — 해적 보물 분배소 (SPEC §4 🔟)
+// 본게임: 수량 선택 → 한 번 발사(여기서 정오답 기록) → 정답일 때 상자 수집.
+// 자유 배분은 무득점 연습 전용. 실제 보석 총량은 항상 보존하고 부족한 양은 배분하지 않는다.
+// 정답 발사 후에는 계산 시계를 멈춘다. 수집은 보상 동작이며 두 번째 답안이 아니다.
+// 피버는 쉬운 문제/무적을 유지한다. 진행 중인 정상 문제를 보관하고 이미 맞힌 수집을 버리지 않는다.
+// 수량/판정은 입력 시 확정하며 비행은 장식만. core/scenes 미수정, 아트는 Canvas/L 헬퍼.
 
 import { L } from '../core/layout.js';
 import { THEME, font, roundRect } from '../core/ui.js';
 import { drawTreasureChest, drawPirate, drawPlayBackdrop, drawRewardText } from '../art/toyArt.js';
 
-const CONCEPT_KEY = 'g10_remain.conceptSeen'; // storage가 mathArcade. 접두
-const REVEAL_DUR = 1.2; // 식 조립 연출(초) — 긍정적 순간, 오답 정지(1.2s)보다 부드럽게
+const CONCEPT_KEY = 'g10_remain.oneShotSeen'; // 새 조작 안내. 학습 진도/보상 저장이 아님.
+const REVEAL_DUR = 0.4; // 상자 수집 후 다음 문제. 이전 식은 별도 영수증 영역에 남는다.
 const HINT_DUR = 1.6; // 배분 실수 안내 지속(초)
 const GEM_ICON_MAX = 20; // 이 수를 넘으면 개별 아이콘 대신 뭉치로 표시
-const NEARMISS_RATIO = 0.35; // 제한시간의 이 비율 이상 남기고 완료 → 니어미스
+const NEARMISS_RATIO = 0.35; // 시계의 주의 색상 기준 (득점 판정과 분리)
+const CARGO_PER_SHIP = 6; // 성공 1회=짐 1개. 실제 나머지의 크기와 무관한 세션 성취.
+const BOARD_FIELDS = ['dividend', 'divisor', 'q', 'r', 'counts', 'pile', 'problem',
+  'timeLimit', 'timeLeft', 'nearMissUsed', 'predictVal', 'mode'];
 
-const ROUND_LIMIT = 3; // Lv3~4 '한 바퀴 돌리기' 허용 횟수(넘으면 직접 배분 유도)
-const OVER_PENALTY_SEC = 1.0; // 오버(못 나누는) 시도마다 제한시간 차감 → 긴장은 시간으로
-const NO_OVER_BONUS = 100; // 오버 시도 없이 완료 시 보너스 점수
 const PREDICT_TIME = 16; // Lv5 예측 모드 기본 제한시간(초) — 배분이 아니라 나눗셈 암산 중심이라 짧게
 
 // 난이도 밴드(개정안): pirates=해적 수 범위, qMin/qMax=1인당 몫 범위, cap=보석 수 상한
@@ -83,7 +46,7 @@ export const g10Treasure = {
   comboMilestones: { 5: '보물 사냥꾼!', 10: '나눗셈 척척!', 20: '해적왕!', 30: '전설의 분배!' },
 
   tutorial: {
-    text: '보석을 해적들에게 똑같이 나눠주고, 더 못 나누면 [다 나눴어요!]를 눌러!',
+    text: '몇 개씩 줄지 골라 한 번에 발사! 맞히면 남은 보석을 상자에 담아요.',
     draw(ctx) {
       const cx = L.W / 2;
       ctx.textAlign = 'center';
@@ -102,13 +65,14 @@ export const g10Treasure = {
       ctx.fillText('남은 보석 = 나머지 💎', cx, L.gu(7));
       ctx.fillStyle = THEME.subtext;
       ctx.font = font(L.font(0.026), 'normal');
-      ctx.fillText('해적을 눌러 하나씩 · 🔄 한 바퀴로 빠르게', cx, L.gu(8.4));
+      ctx.fillText('수량 선택 → 발사! → 남은 보석 담기', cx, L.gu(8.4));
     },
   },
 
   init(engine) {
+    if (this.engine) this.destroy(); // 엔진의 재시작 경로는 destroy를 호출하지 않는다.
     this.engine = engine;
-    this.mode = 'concept'; // 'concept' | 'play' | 'reveal'
+    this.mode = 'concept'; // concept / play(수량 선택) / collect(정답) / reveal / waiting(오답)
     this.conceptReturn = 'start'; // concept 종료 후: 'start'(첫 문제) | 'play'(재개)
     this.conceptT = 0;
 
@@ -129,14 +93,46 @@ export const g10Treasure = {
     this.movingGems = []; // 나머지 보석이 보물상자로 이동
     this.floats = [];
     this.roundPulse = 0; // 한 바퀴 돌리기 연출
-    this.roundsLeft = Infinity; // 남은 '한 바퀴 돌리기' 횟수(_nextProblem에서 레벨별 설정)
-    this.overAttempts = 0; // 이번 문제의 오버(못 나누는) 시도 수 → 0이면 완료 보너스
-    this.predict = false; // Lv5 예측 모드 여부(돌리기·직접배분 없이 '몇 개씩'을 예측)
+    this.roundsLeft = 0; // 이전 코드 호환: 본게임 0 / 연습 Infinity
+    this.predict = true; // 호환 필드: 본게임은 모든 레벨에서 수량 선택
     this.predictVal = 1; // 예측값(몇 개씩)
-    this.predMax = 9; // 예측 상한(문제별 계산)
+    this.predMax = 9; // 정답과 독립적인 고정 선택 범위
     this.wasFever = false;
     this.feverBanner = null;
     this.time = 0;
+    this.boardId = 0;
+    this.drag = null;
+    this.flights = [];
+    this.pirateBounces = [];
+    this.receipt = null;
+    this.cargoCount = 0;
+    this.cargoPulse = 0;
+    this.returnPulse = 0;
+    this.savedNormal = null;
+    this.practice = false;
+    this.practiceRound = 0;
+    this.practiceReturn = null;
+    this.quantityDrag = false;
+    this.failure = null;
+    // core가 touchcancel을 end로 합치므로 이동 중 상자 진입으로만 수집한다.
+    // 일시정지/취소가 먼저 발생하면 이어진 제스처를 버린다. core 변경 없음.
+    this._cancelGesture = () => { this.drag = null; this.quantityDrag = false; };
+    this._pauseGesture = (ev) => {
+      if (engine.game !== this) return;
+      if (ev.key === 'Escape' || ev.key === 'p' || ev.key === 'P') this._cancelGesture();
+      const p = ev.touches?.[0] || ev;
+      if (typeof p.clientX === 'number' && engine.input?.toLogical) {
+        const pos = engine.input.toLogical(p.clientX, p.clientY);
+        if (engine.ui.hitPause(pos.x, pos.y)) this._cancelGesture();
+      }
+    };
+    engine.canvas?.addEventListener('touchcancel', this._cancelGesture, true);
+    engine.canvas?.addEventListener('touchstart', this._pauseGesture, true);
+    engine.canvas?.addEventListener('mousedown', this._pauseGesture, true);
+    if (typeof window !== 'undefined') {
+      window.addEventListener('blur', this._cancelGesture);
+      window.addEventListener('keydown', this._pauseGesture, true);
+    }
 
     // 첫 진입이면 개념 설명 자동 1회
     const seen = this.engine.storage.get(CONCEPT_KEY, false);
@@ -158,7 +154,9 @@ export const g10Treasure = {
   // ── 문제 생성(밴드) ───────────────────────────────────────
   _nextProblem() {
     const e = this.engine;
-    const easy = this._feverEasyActive();
+    this._clearBoardEffects();
+    this.boardId++;
+    const easy = !this.practice && this._feverEasyActive();
     const level = clamp(e.problemGenerator.currentLevel || 1, 1, this.maxLevel);
     // 피버 easy: 레벨과 무관하게 쉬운 밴드(보석≤10·해적2~4). 그 외엔 레벨별 밴드.
     const band = easy ? FEVER_EASY_BAND : BANDS[level];
@@ -179,25 +177,29 @@ export const g10Treasure = {
       q = Math.max(1, Math.floor((band.cap - r) / P));
       D = P * q + r;
     }
+    // 연습은 별도 예제다. 현재 본게임 문제를 쉽게 풀어주는 힌트 경로가 아니다.
+    if (this.practice) {
+      P = this.practiceReturn?.divisor === 3 ? 4 : 3;
+      D = P * 2 + [1, 2, 0][this.practiceRound % 3]; q = Math.floor(D / P); r = D % P;
+    }
 
     this.dividend = D;
     this.divisor = P;
     this.q = q;
     this.r = r;
     this.counts = new Array(P).fill(0);
+    this.pirateBounces = new Array(P).fill(0);
     this.pile = D;
     this.nearMissUsed = false;
     this.hint = null;
     this.reveal = null;
     this.movingGems = [];
-    this.overAttempts = 0;
 
-    // 돌리기 제한/예측 모드(축 A, 레벨별). 피버 easy면 항상 자유.
-    //   Lv1~2·피버: 자유(∞) / Lv3~4: 3번 제한 → 직접 배분 유도 / Lv5: 돌리기 없음 → 예측 모드.
-    this.predict = !easy && level >= 5; // Lv5 & 비피버 → '몇 개씩' 예측 후 자동 배분
-    this.roundsLeft = this._roundLimitFor(level, easy);
-    this.predictVal = 1;
-    this.predMax = Math.floor(D / P) + 3; // 예측 상한(정답 근처까지만)
+    this.predict = !this.practice; // 호환 필드: 이제 모든 본게임/피버가 수량 선택형
+    this.roundsLeft = this.practice ? Infinity : 0;
+    this.predictVal = 0; // 미선택. 무작정 발사 버튼만 누르는 반복으로 정답을 얻지 않음.
+    this.predMax = 9; // 정답으로부터 계산하지 않는 고정 범위 (상한에서 답 유추 방지)
+    this.failure = null;
 
     // 피버 easy 문제는 실제로 쉬우므로 리포트 오분류를 막기 위해 level=1로 기록(축 A 자체는 불변).
     this.problem = { a: D, b: P, op: '÷', answer: q, remainder: r > 0 ? r : null, text: `${D} ÷ ${P}`, blank: null, level: easy ? 1 : level };
@@ -207,25 +209,72 @@ export const g10Treasure = {
     //   - 그 외: 보석 수에 비례(넉넉히). ⚠️ 기존 8+D×0.7은 Lv5 대용량 D(최대 90)에서 과다했으나,
     //     Lv5가 예측 모드로 분리되어 이 공식은 이제 D≤22 구간에만 적용된다 → 적정(예: D=22 → 23초).
     const scale = e.settings.timeScale || 1;
-    this.timeLimit = (this.predict ? PREDICT_TIME + P * 0.8 : 8 + D * 0.7) * scale;
+    this.timeLimit = (level >= 5 && !easy ? PREDICT_TIME + P * 0.8 : 8 + D * 0.7) * scale;
     this.timeLeft = this.timeLimit;
     this.mode = 'play';
+    if (!this.practice) e.markQuestionStart();
   },
 
-  // 레벨별 '한 바퀴 돌리기' 허용 횟수. ∞=자유. Lv5는 예측 모드라 0(돌리기 자체가 없음).
-  _roundLimitFor(level, easy) {
-    if (easy) return Infinity; // 피버 중 항상 자유(피버 취지)
-    if (level <= 2) return Infinity; // Lv1~2 자유(나눗셈 감각 익히기)
-    if (level >= 5) return 0; // Lv5 예측 모드
-    return ROUND_LIMIT; // Lv3~4
+  _clearBoardEffects() {
+    this.drag = null;
+    this.quantityDrag = false;
+    this.flights = [];
+    this.movingGems = [];
+    this.roundPulse = 0;
+    this.returnPulse = 0;
   },
-  _roundLimited() {
-    return Number.isFinite(this.roundsLeft);
+
+  _syncFever() {
+    if (this.practice || this.mode === 'concept') return;
+    const active = this._feverEasyActive();
+    if (active === this.wasFever) return;
+    this.wasFever = active;
+    this._cancelGesture();
+    if (!active) this.feverBanner = { points: this.engine.fever?.pointsEarned || 0, t: 0, dur: 1.4 };
+    // 이미 정답인 수집은 버리지 않는다. 추가 득점/재판정 없이 다음 문제부터 출제 유형 전환.
+    if (this.mode === 'collect' || this.mode === 'reveal' || this.mode === 'waiting') return;
+    this._clearBoardEffects();
+    if (active) {
+      this.savedNormal = this.mode === 'play' ? this._snapshotBoard() : null;
+      this._nextProblem();
+    } else {
+      this._advanceBoard();
+    }
   },
-  // 오버(남은 보석 < 해적 수인데 배분 시도) — 라이프는 깎지 않고 시간만 흘려 긴장을 준다.
-  _overAttempt() {
-    this.overAttempts += 1;
-    this.timeLeft = Math.max(0, this.timeLeft - OVER_PENALTY_SEC * (this.engine.settings.timeScale || 1));
+
+  _snapshotBoard() {
+    return Object.fromEntries(BOARD_FIELDS.map(k => [k, Array.isArray(this[k]) ? this[k].slice() : this[k]]));
+  },
+  _restoreBoard(saved) {
+    this._clearBoardEffects();
+    Object.assign(this, saved);
+    this.boardId++;
+    this.predict = !this.practice;
+    this.pirateBounces = new Array(this.divisor).fill(0);
+    this.hint = this.reveal = this.failure = null;
+    this.engine.markQuestionStart();
+  },
+  _advanceBoard() {
+    if (this.practice) { this.practiceRound++; this._nextProblem(); return; }
+    if (!this._feverEasyActive() && this.savedNormal) {
+      const saved = this.savedNormal; this.savedNormal = null; this._restoreBoard(saved);
+    } else this._nextProblem();
+  },
+  _enterPractice() {
+    if (this.practice || (this.mode !== 'play' && this.mode !== 'concept')) return;
+    this.practiceReturn = this.mode === 'play' ? this._snapshotBoard() : null;
+    this.practice = true; this.practiceRound = 0;
+    this.receipt = this.feverBanner = null;
+    this._nextProblem();
+  },
+  _leavePractice() {
+    this.engine.storage.set(CONCEPT_KEY, true);
+    this.practice = false;
+    this.receipt = null;
+    if (this.practiceReturn) this._restoreBoard(this.practiceReturn);
+    else this._nextProblem();
+    this.practiceReturn = null;
+    this._syncFever();
   },
 
   // 교사 단(dan) 설정 ∩ 밴드 해적 범위. 교집합이 비면 밴드 범위 사용.
@@ -242,24 +291,31 @@ export const g10Treasure = {
   // ── 업데이트 ──────────────────────────────────────────────
   update(dt) {
     this.time += dt;
-
-    // 피버 진입/종료 전이(연출만)
-    const fev = this.engine.fever;
-    const active = !!(fev && fev.active);
-    if (active && !this.wasFever) {
-      this.engine.ui.flash('rgba(255,210,120,0.5)', 0.09);
-      this.engine.ui.showComboText('🔥 FEVER!', true);
-    } else if (!active && this.wasFever) {
-      this.feverBanner = { points: fev ? fev.pointsEarned : 0, t: 0, dur: 1.4 };
-      this.engine.ui.flash('rgba(120,200,255,0.4)', 0.09);
-    }
-    this.wasFever = active;
+    this._syncFever();
     if (this.feverBanner) {
       this.feverBanner.t += dt;
       if (this.feverBanner.t >= this.feverBanner.dur) this.feverBanner = null;
     }
 
     if (this.roundPulse > 0) this.roundPulse = Math.max(0, this.roundPulse - dt);
+    this.cargoPulse = Math.max(0, this.cargoPulse - dt);
+    this.returnPulse = Math.max(0, this.returnPulse - dt);
+    if (this.receipt) { this.receipt.t += dt; if (this.receipt.t > 2.4) this.receipt = null; }
+    this.pirateBounces = this.pirateBounces.map(t => Math.max(0, t - dt));
+    // 게임 시간 기반 소리/도착 처리: 지연 프레임에 소리를 한꺼번에 쏟아내지 않는다.
+    let sounded = false;
+    for (const f of this.flights) {
+      f.t += dt;
+      if (!f.landed && f.t >= f.dur) {
+        f.landed = true;
+        this.pirateBounces[f.pirate] = 0.18;
+        if (!sounded) {
+          this.engine.sound.tone(390 + (f.pirate % 5) * 55, 0, 0.045, { type: 'triangle', vol: 0.1 });
+          sounded = true;
+        }
+      }
+    }
+    this.flights = this.flights.filter(f => f.t < f.dur + 0.1);
     for (let i = this.floats.length - 1; i >= 0; i--) {
       this.floats[i].t += dt;
       if (this.floats[i].t >= this.floats[i].dur) this.floats.splice(i, 1);
@@ -276,86 +332,80 @@ export const g10Treasure = {
 
     if (this.mode === 'reveal') {
       this.reveal.t += dt;
-      for (const g of this.movingGems) g.t = Math.min(1, g.t + dt / 0.5);
-      if (this.reveal.t >= REVEAL_DUR) this._nextProblem();
+      for (const g of this.movingGems) g.t = Math.min(1, g.t + dt / REVEAL_DUR);
+      if (this.reveal.t >= REVEAL_DUR) this._advanceBoard();
       return;
     }
 
+    if (this.mode !== 'play' || this.practice) return;
     // play — 제한시간(정지/개념/리빌 중엔 진행 안 함)
     this.timeLeft -= dt;
     if (this.timeLeft <= 0) {
       this.timeLeft = 0;
+      this.drag = null;
+      this.mode = 'waiting'; // 콜백 전 중복 시간초과/득점 방지 (피버의 다음 프레임 콜백 포함)
       // 시간초과 = 판정 오류 → 라이프 -1 + 정답식 표시(core 1.2초 정지)
-      this.engine.timeUp(this.problem, { loseLife: true, onResume: () => this._nextProblem() });
+      this.engine.timeUp(this.problem, { loseLife: true, onResume: () => this._advanceBoard() });
     }
   },
 
   // ── 입력 ──────────────────────────────────────────────────
   onTouch(x, y, phase) {
+    if (this.engine.freeze?.active || (!this.practice && this.mode === 'play' && this._feverEasyActive() !== this.wasFever)) {
+      this._cancelGesture(); return;
+    }
+    if (phase === 'end' || phase === 'cancel') { this._cancelGesture(); return; }
+    if (phase === 'move') {
+      if (this.quantityDrag && this.mode === 'play' && !this.practice) this._selectQuantity(x);
+      if ((this.mode === 'collect' || this.practice) && this.drag?.boardId === this.boardId) {
+        this.drag.x = x; this.drag.y = y;
+        if (hitRect(this._chestRect(), x, y) && Math.hypot(x - this.drag.sx, y - this.drag.sy) >= L.gu(1)) {
+          this.drag = null; this._judge();
+        }
+      }
+      return;
+    }
     if (phase !== 'start') return;
-
+    this._cancelGesture();
     if (this.mode === 'concept') {
-      if (hitRect(this._btnConceptClose(), x, y)) {
-        this.engine.storage.set(CONCEPT_KEY, true);
-        if (this.conceptReturn === 'start') this._nextProblem();
-        else this.mode = 'play';
-      }
+      if (hitRect(this._btnConceptClose(), x, y)) this._enterPractice();
+      if (hitRect(this._btnConceptSkip(), x, y)) this._leavePractice();
       return;
     }
-    if (this.mode === 'reveal') return;
+    if (this.practice && hitRect(this._btnConcept(), x, y)) { this._leavePractice(); return; }
+    if (this.mode === 'collect' || (this.practice && this.mode === 'play')) {
+      if (hitRect(this._btnDone(), x, y) || hitRect(this._chestRect(), x, y)) { this._judge(); return; }
+      if (hitRect(this._pileRect(), x, y)) { this.drag = {sx:x, sy:y, x, y, boardId:this.boardId}; return; }
+    }
+    if (this.mode !== 'play') return;
+    if (hitRect(this._btnConcept(), x, y)) { this._enterPractice(); return; }
+    if (!this.practice) {
+      if (hitRect(this._btnPredMinus(), x, y)) { this._setQuantity(Math.max(1, this.predictVal - 1)); return; }
+      if (hitRect(this._btnPredPlus(), x, y)) { this._setQuantity(Math.min(9, this.predictVal + 1)); return; }
+      if (hitRect(this._quantityRect(), x, y)) { this.quantityDrag = true; this._selectQuantity(x); return; }
+      if (hitRect(this._btnDone(), x, y)) this._fire();
+      return;
+    }
+    if (hitRect(this._btnRound(), x, y)) { this._dealRound(); return; }
+    if (hitRect(this._btnReset(), x, y)) { this._resetDistribution(); return; }
+    const seats = this._pirateRects();
+    for (let i = 0; i < seats.length; i++) if (hitRect(seats[i], x, y)) { this._giveOne(i); return; }
+  },
 
-    // play
-    if (hitRect(this._btnConcept(), x, y)) {
-      this.conceptReturn = 'play';
-      this.conceptT = 0;
-      this.mode = 'concept';
-      return;
+  _setQuantity(n) {
+    if (this.mode !== 'play' || this.practice) return;
+    if (n !== this.predictVal) {
+      this.predictVal = n; this.hint = null;
+      this.engine.sound.play('tick'); this._haptic(8);
     }
-
-    // 예측 모드(Lv5): [−]/[+]로 '몇 개씩'을 정하고 [나눠주기!]로 판정. 해적 탭/돌리기/리셋 없음.
-    if (this.predict) {
-      if (hitRect(this._btnPredMinus(), x, y)) {
-        this.predictVal = Math.max(1, this.predictVal - 1);
-        this.engine.sound.play('tick');
-        this._haptic(8);
-        return;
-      }
-      if (hitRect(this._btnPredPlus(), x, y)) {
-        this.predictVal = Math.min(this.predMax, this.predictVal + 1);
-        this.engine.sound.play('tick');
-        this._haptic(8);
-        return;
-      }
-      if (hitRect(this._btnDone(), x, y)) {
-        this._judgePredict();
-        return;
-      }
-      return;
-    }
-
-    if (hitRect(this._btnDone(), x, y)) {
-      this._judge();
-      return;
-    }
-    if (hitRect(this._btnRound(), x, y)) {
-      this._dealRound();
-      return;
-    }
-    if (hitRect(this._btnReset(), x, y)) {
-      this._resetDistribution();
-      return;
-    }
-    // 해적 탭 → 보석 1개 배분
-    const rects = this._pirateRects();
-    for (let i = 0; i < rects.length; i++) {
-      if (hitRect(rects[i], x, y)) {
-        this._giveOne(i);
-        return;
-      }
-    }
+  },
+  _selectQuantity(x) {
+    const r = this._quantityRect();
+    this._setQuantity(1 + Math.round(clamp((x - r.x) / r.w, 0, 1) * 8));
   },
 
   _giveOne(i) {
+    if (this.mode !== 'play' || !this.practice) return;
     if (this.pile <= 0) return;
     const min = Math.min(...this.counts);
     // ⚠️ 균등 유지: 가장 적게 받은 해적에게만 준다(한 명에게 몰아주기 방지 = "균등하지 않게 주면 안 됨").
@@ -366,7 +416,6 @@ export const g10Treasure = {
     }
     // 모두 같은 수인데 남은 보석 < 해적 수 → 더는 똑같이 못 나눔(= 나머지). 오버 시도로 처리(라이프 X).
     if (Math.max(...this.counts) === min && this.pile < this.divisor) {
-      this._overAttempt();
       this.hint = { type: 'nofull', t: 0 };
       this.engine.ui.shake(6, 0.1);
       return;
@@ -374,54 +423,81 @@ export const g10Treasure = {
     this.pile -= 1;
     this.counts[i] += 1;
     this.hint = null;
-    const r = this._pirateRects()[i];
-    this.engine.particles.emit(r.x + r.w / 2, r.y + L.gu(0.4), 'sparkle', THEME.accent, 6);
-    this.engine.sound.play('tick');
+    this._launchGems([i]);
     this._haptic(10);
   },
 
   _dealRound() {
-    // 돌리기 횟수 제한(Lv3~4). 다 쓰면 직접 배분(해적 탭) 유도 — ⚠️ 버튼 비활성화하지 않고 안내만.
-    if (this._roundLimited() && this.roundsLeft <= 0) {
-      this.hint = { type: 'limit', t: 0 };
-      this.engine.ui.shake(5, 0.1);
-      this.engine.sound.play('wrong');
-      return;
-    }
-    if (this.pile < this.divisor) {
-      // 남은 보석 < 해적 수 → 한 바퀴 못 돎(오버 시도). 라이프 X, 시간만 흐른다.
-      this._overAttempt();
+    if (this.mode !== 'play' || !this.practice) return;
+    // 개별 배분 중이면 적게 받은 자리만 채운다. 모두에게 더하면 q+1개를 받은 자리가 생길 수 있다.
+    const max = Math.max(...this.counts), min = Math.min(...this.counts);
+    const target = max === min ? max + 1 : max;
+    const recipients = this.counts.flatMap((n, i) => n < target ? [i] : []);
+    if (this.pile < recipients.length) {
+      // 연습에서 더 못 나누면 안내만. 점수/라이프/시간 불이익 없음.
       this.hint = { type: 'nofull', t: 0 };
       this.engine.ui.shake(6, 0.1);
       return;
     }
-    for (let i = 0; i < this.divisor; i++) this.counts[i] += 1;
-    this.pile -= this.divisor;
-    if (this._roundLimited()) this.roundsLeft -= 1;
+    for (const i of recipients) this.counts[i] += 1;
+    this.pile -= recipients.length;
     this.hint = null;
     this.roundPulse = 0.35;
-    const rects = this._pirateRects();
-    for (const r of rects) this.engine.particles.emit(r.x + r.w / 2, r.y + L.gu(0.4), 'pop', THEME.gold, 5);
-    this.engine.sound.play('pop');
+    this._launchGems(recipients);
     this._haptic(15);
   },
 
-  // 예측 모드(Lv5): 예측값이 몫과 같으면 자동 균등 배분 후 완료, 다르면 라이프 -1(정답식 표시).
-  _judgePredict() {
-    const e = this.engine;
-    const pred = this.predictVal;
-    if (pred === this.q) {
-      this.counts = new Array(this.divisor).fill(this.q);
-      this.pile = this.r;
-      this._complete();
-    } else {
-      // 예측 실패(너무 크거나 작음) → 라이프 -1 + core 정답식 표시(1.2초). 다음 문제로.
-      e.sound.play('wrong');
-      e.answerWrong(this.problem, pred, { loseLife: true, onResume: () => this._nextProblem() });
+  _launchGems(recipients, rounds = 1) {
+    const src = this._pileAnchor(), seats = this._pirateRects();
+    for (let n = 0; n < rounds; n++) for (const i of recipients) {
+      const r = seats[i];
+      // 9명×9개도 전체 비행 길이는 0.34초 이하. 큰 몫이 긴 대기를 만들지 않는다.
+      const delay = (rounds > 1 ? n / (rounds - 1) * 0.12 : 0) + i / Math.max(1, seats.length - 1) * 0.06;
+      this.flights.push({sx:src.x, sy:src.y, dx:r.x+r.w/2, dy:r.y+r.h/2, pirate:i, t:-delay, dur:0.16, landed:false});
     }
+    this.flights = this.flights.slice(-96);
+    this.engine.sound.tone(190, 0, 0.055, {type:'triangle',vol:0.16,sweepTo:115});
+    this.roundPulse = 0.2;
+  },
+
+  _fire() {
+    if (this.practice || this.mode !== 'play' || this.engine.freeze?.active || this._feverEasyActive() !== this.wasFever) return;
+    const k = this.predictVal;
+    if (!Number.isInteger(k) || k < 1 || k > 9) { this.hint = {type:'choose',t:0}; return; }
+    this._cancelGesture();
+    const needed = this.divisor * k;
+    this.mode = 'waiting'; // 입력 확정은 애니메이션보다 먼저: 재발사/수정 제출 불가
+    if (k !== this.q) {
+      this.failure = {k, needed, missing:Math.max(0, needed-this.dividend), left:Math.max(0, this.dividend-needed)};
+      if (needed <= this.dividend) {
+        this.counts.fill(k); this.pile = this.dividend - needed;
+        this._launchGems(this.counts.map((_,i)=>i), k);
+      }
+      // 부족한 수량은 실제로 나누지 않는다. 화면에 필요한 양/부족분만 표시.
+      this.engine.answerWrong(this.problem, k, {loseLife:true,onResume:()=>this._advanceBoard()});
+      return;
+    }
+    this.counts.fill(k); this.pile = this.r;
+    this._launchGems(this.counts.map((_,i)=>i), k);
+    this.mode = 'collect'; // 수학 판정 완료. 수집을 기다리는 동안 계산 시간은 흐르지 않는다.
+    this._awardAnswer();
+  },
+
+  _awardAnswer() {
+    const e = this.engine, before = e.scoreManager.score;
+    e.answerCorrect(this.problem, this.q, 120 + e.scoreManager.combo * 10);
+    const shown = e.scoreManager.score - before, chest = this._chestRect();
+    this.floats.push({x:chest.x+chest.w/2,y:chest.y+L.gu(1),text:`+${shown}`,color:THEME.gold,size:L.font(0.04),t:0,dur:0.6});
+    if (!this.nearMissUsed && this.timeLeft > 0 && this.timeLeft <= 0.3) {
+      this.nearMissUsed = true; e.reportNearMiss(chest.x, chest.y);
+    }
+    this.receipt = {t:0,text:`${this.dividend} ÷ ${this.divisor} = ${this.q} … ${this.r}`,
+      detail:this.r === 0 ? '딱 나눴다!  빈 상자를 눌러 마무리' : `${this.q}개씩 나눴어요! 남은 ${this.r}개를 상자로`};
   },
 
   _resetDistribution() {
+    if (!this.practice || this.mode !== 'play') return;
+    this._clearBoardEffects();
     this.counts = new Array(this.divisor).fill(0);
     this.pile = this.dividend;
     this.hint = null;
@@ -429,49 +505,20 @@ export const g10Treasure = {
   },
 
   _judge() {
-    const e = this.engine;
-    const max = Math.max(...this.counts);
-    const min = Math.min(...this.counts);
-    const allEqual = max === min;
-
-    if (!allEqual) {
-      // 똑같이 안 나눔 → 어느 해적이 더 받았는지 + 재시도(라이프 유지)
-      this.hint = { type: 'unequal', t: 0 };
-      e.ui.shake(10, 0.12);
-      e.sound.play('wrong');
-      return;
+    if (this.engine.freeze?.active) return;
+    if (this.practice && this.mode === 'play') {
+      if (Math.max(...this.counts) !== Math.min(...this.counts)) { this.hint = {type:'unequal',t:0}; return; }
+      if (this.pile >= this.divisor) { this.hint = {type:'more',t:0}; this.returnPulse = 0.3; return; }
+      this.mode = 'collect';
     }
-    if (this.pile >= this.divisor) {
-      // 더 나눌 수 있음 → 재시도(라이프 유지)
-      this.hint = { type: 'more', t: 0 };
-      e.ui.shake(8, 0.12);
-      e.sound.play('wrong');
-      return;
-    }
-    // 정답: 균등 + 남은 보석 < 해적 수 → 각 q개, 나머지 pile(=r)
-    this._complete();
+    if (this.mode === 'collect') this._complete();
   },
 
   _complete() {
+    if (this.mode !== 'collect') return;
     const e = this.engine;
-    const combo = e.scoreManager.combo;
-    let pts = 120 + combo * 10;
-    if (this.r > 0) pts += 40; // 나머지 있는 문제 가산
-    // 오버(못 나누는) 시도 없이 깔끔히 완료 → 보너스(예측 모드는 배분 오버 개념이 없어 제외).
-    const cleanBonus = !this.predict && this.overAttempts === 0;
-    if (cleanBonus) pts += NO_OVER_BONUS;
-    e.answerCorrect(this.problem, this.q, pts); // 점수배수·게이지·정답음·콤보문구 자동
-    const shown = pts * (e.fever && e.fever.active ? e.fever.scoreMultiplier : 1);
-    if (cleanBonus) {
-      this.floats.push({ x: L.W / 2, y: L.y(0.33), text: '완벽 분배! +100', color: THEME.correct, size: L.font(0.036), t: 0, dur: 1.0 });
-    }
-
-    // 니어미스: 제한시간을 넉넉히 남기고 완료
-    if (!this.nearMissUsed && this.timeLeft >= this.timeLimit * NEARMISS_RATIO) {
-      this.nearMissUsed = true;
-      e.reportNearMiss(L.W / 2, L.y(0.45));
-    }
-
+    this.mode = 'reveal';
+    this._cancelGesture();
     // 나머지 보석이 보물상자로 이동하는 연출 준비
     const chest = this._chestRect();
     const src = this._pileAnchor();
@@ -485,34 +532,36 @@ export const g10Treasure = {
         t: 0,
       });
     }
-    this.floats.push({ x: L.W / 2, y: L.y(0.4), text: `+${shown}`, color: THEME.gold, size: L.font(0.05), t: 0, dur: 0.8 });
     e.particles.emit(chest.x + chest.w / 2, chest.y, 'gem', THEME.gold, 16);
-    e.ui.flash('rgba(255,220,140,0.3)', 0.1);
-    e.ui.shake(6, 0.1);
+    e.ui.shake(L.gu(0.12), 0.09);
+    e.sound.tone(260, 0, 0.08, { type: 'triangle', vol: 0.16, sweepTo: 130 });
     this._haptic(15);
 
     this.reveal = { t: 0 };
-    this.mode = 'reveal';
+    if (!this.practice) { this.cargoCount++; this.cargoPulse = 0.6; }
+    this.receipt = { t: 0, text: `${this.dividend} ÷ ${this.divisor} = ${this.q} … ${this.r}`,
+      detail: this.r === 0 ? '딱 나눴다!  나머지 0' : `${this.q}개씩 나누고 ${this.r}개 남았어요` };
   },
 
   // ── 좌표(L 헬퍼) ──────────────────────────────────────────
   _pileAnchor() {
-    return { x: L.W * 0.36, y: L.zone.playTop + L.gu(3.4) };
+    const r = this._pileRect();
+    return { x: r.x + r.w / 2, y: r.y + r.h / 2 };
   },
   _chestRect() {
-    const w = L.gu(3.4);
-    const h = L.gu(2.4);
+    const w = L.gu(5.4);
+    const h = L.gu(5.0);
     return { x: L.W - L.safe - w, y: L.zone.playTop + L.gu(1.4), w, h };
   },
   _pileRect() {
-    return { x: L.safe, y: L.zone.playTop + L.gu(1.4), w: L.W * 0.62, h: L.gu(5.2) };
+    return { x: L.safe, y: L.zone.playTop + L.gu(1.4), w: this._chestRect().x - L.safe - L.gu(0.4), h: L.gu(5.0) };
   },
   _pirateRects() {
     const P = this.divisor;
     const rows = P <= 5 ? 1 : 2;
     const perRow = Math.ceil(P / rows);
-    const top = L.y(0.44);
-    const bot = L.zone.controls - L.gu(1.2);
+    const top = L.zone.playTop + L.gu(7.4);
+    const bot = L.zone.controls - L.gu(2.7);
     const gap = L.gu(0.4);
     const areaW = L.W - L.safe * 2;
     const cellW = (areaW - (perRow - 1) * gap) / perRow;
@@ -557,6 +606,14 @@ export const g10Treasure = {
   _btnPredPlus() {
     return { x: L.W - L.safe - L.gu(3), y: this._btnRow(), w: L.gu(3), h: L.gu(2.4) };
   },
+  _quantityRect() {
+    const m = this._btnPredMinus(), p = this._btnPredPlus();
+    return {x:m.x+m.w+L.gu(0.15),y:m.y,w:p.x-m.x-m.w-L.gu(0.3),h:m.h};
+  },
+  _btnConceptSkip() {
+    const b = this._btnConceptClose();
+    return {...b, y:b.y+b.h+L.gu(0.3)};
+  },
   _btnConceptClose() {
     const w = L.gu(9);
     return { x: (L.W - w) / 2, y: L.y(0.82), w, h: L.gu(2.4) };
@@ -581,8 +638,12 @@ export const g10Treasure = {
     this._drawPile(ctx);
     this._drawChest(ctx);
     this._drawPirates(ctx);
+    this._drawFlights(ctx);
     this._drawButtons(ctx);
-    this._drawHint(ctx);
+    this._drawCargo(ctx);
+    if (this.failure) this._drawFailure(ctx);
+    else if (this.hint) this._drawHint(ctx);
+    else if (!this.feverBanner) this._drawReceipt(ctx);
     if (this.mode === 'reveal') this._drawReveal(ctx);
     this._drawFloats(ctx);
     this._drawFeverBanner(ctx);
@@ -593,7 +654,7 @@ export const g10Treasure = {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = THEME.text;
-    const msg = this.predict ? `보석 ${this.dividend}개, 해적 ${this.divisor}명 — 몇 개씩 갈까?` : `보석 ${this.dividend}개를 해적 ${this.divisor}명에게 똑같이!`;
+    const msg = this.practice ? `연습 · 보석 ${this.dividend}개를 ${this.divisor}명에게!` : `보석 ${this.dividend}개 · 해적 ${this.divisor}명 · 몇 개씩?`;
     let size = L.font(0.04);
     ctx.font = font(size);
     const maxW = L.W - L.safe * 2;
@@ -609,7 +670,7 @@ export const g10Treasure = {
     const h = L.gu(0.55);
     const x = L.W / 2 - w / 2;
     const y = L.zone.playTop + L.gu(0.2);
-    const ratio = this.timeLimit > 0 ? Math.max(0, this.timeLeft / this.timeLimit) : 0;
+    const ratio = this.practice || this.mode === 'collect' ? 1 : this.timeLimit > 0 ? Math.max(0, this.timeLeft / this.timeLimit) : 0;
     const low = this.timeLeft <= this.timeLimit * NEARMISS_RATIO;
     ctx.save();
     roundRect(ctx, x, y, w, h, h / 2);
@@ -624,52 +685,61 @@ export const g10Treasure = {
     ctx.font = font(Math.round(h * 0.85), 'normal');
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(`${low ? '⏳ ' : ''}${Math.ceil(this.timeLeft)}초`, L.W / 2, y + h / 2);
+    const label = this.practice ? '연습 · 시간 제한 없음' : this.mode === 'collect' ? '정답! 천천히 담아도 돼요' : `${low ? '⏳ ' : ''}${Math.ceil(this.timeLeft)}초`;
+    ctx.fillText(label, L.W / 2, y + h / 2);
     ctx.restore();
   },
 
   _drawPile(ctx) {
     const rect = this._pileRect();
     ctx.save();
-    // 통(보석 더미) 배경
+    // 밝은 보석 배분기. 입력 가능 여부/색은 정답 여부와 무관하다.
     roundRect(ctx, rect.x, rect.y, rect.w, rect.h, L.gu(0.5));
-    ctx.fillStyle = '#3a666f'; // 밝은 해변 위에서도 보석 개수/라벨 대비 유지
+    ctx.fillStyle = '#fff2cd';
     ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,0.15)';
-    ctx.lineWidth = L.gu(0.06);
+    ctx.strokeStyle = '#b97845';
+    ctx.lineWidth = L.gu(0.09);
     ctx.stroke();
 
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillStyle = THEME.subtext;
+    ctx.fillStyle = '#674631';
     ctx.font = font(L.font(0.026), 'normal');
-    ctx.fillText('보석 통', rect.x + rect.w / 2, rect.y + L.gu(0.6));
+    ctx.fillText(this.mode === 'play' && !this.practice ? '수량을 골라 한 번에 발사!' : '남은 보석을 상자로 쓱 →', rect.x + rect.w / 2, rect.y + L.gu(0.6));
 
     if (this.pile <= GEM_ICON_MAX) {
       // 개별 보석 아이콘 격자
       const cols = Math.min(this.pile, 6) || 1;
-      const gx = L.font(0.045);
+      const gx = L.gu(1.1);
       const startX = rect.x + rect.w / 2 - ((Math.min(this.pile, cols) - 1) * gx) / 2;
-      const startY = rect.y + L.gu(1.6);
+      const startY = rect.y + L.gu(1.5);
       for (let i = 0; i < this.pile; i++) {
         const cc = i % cols;
         const rr = Math.floor(i / cols);
-        ctx.font = font(L.font(0.04));
-        ctx.fillStyle = '#fff';
-        ctx.fillText('💎', startX + cc * gx, startY + rr * L.gu(1.3));
+        drawGem(ctx, startX + cc * gx, startY + rr * L.gu(0.68), L.gu(0.32));
       }
     } else {
       // 뭉치 + 개수
-      ctx.font = font(L.font(0.08));
-      ctx.fillText('💎', rect.x + rect.w / 2, rect.y + rect.h / 2 + L.gu(0.2));
-      ctx.fillStyle = THEME.gold;
+      drawGem(ctx, rect.x + L.gu(2), rect.y + rect.h / 2, L.gu(0.7));
+      ctx.fillStyle = '#674631';
       ctx.font = font(L.font(0.05));
-      ctx.fillText(`× ${this.pile}`, rect.x + rect.w / 2 + L.gu(2.2), rect.y + rect.h / 2 + L.gu(0.2));
+      ctx.fillText(`× ${this.pile}`, rect.x + rect.w / 2 + L.gu(1), rect.y + rect.h / 2);
     }
     // 남은 개수 라벨(항상)
-    ctx.fillStyle = THEME.text;
+    ctx.fillStyle = '#674631';
     ctx.font = font(L.font(0.03));
-    ctx.fillText(`남은 보석 ${this.pile}개`, rect.x + rect.w / 2, rect.y + rect.h - L.gu(0.6));
+    ctx.fillText(`${this.mode === 'play' && !this.practice ? '보석 총' : '남은 보석'} ${this.pile}개`, rect.x + rect.w / 2, rect.y + rect.h - L.gu(0.6));
+    if (this.pile === 0) {
+      ctx.font = font(L.font(0.04));
+      ctx.fillText('텅!', rect.x + rect.w / 2, rect.y + L.gu(2.5));
+    }
+    if (this.drag) {
+      ctx.strokeStyle = '#218e9a'; ctx.lineWidth = L.gu(0.09);
+      ctx.setLineDash([L.gu(0.2), L.gu(0.2)]);
+      ctx.beginPath(); ctx.moveTo(this.drag.sx, this.drag.sy); ctx.lineTo(this.drag.x, this.drag.y); ctx.stroke();
+      ctx.setLineDash([]);
+      drawGem(ctx, this.drag.x, this.drag.y, L.gu(0.48));
+    }
     ctx.restore();
   },
 
@@ -679,18 +749,23 @@ export const g10Treasure = {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     roundRect(ctx, r.x, r.y, r.w, r.h, L.gu(0.4));
-    ctx.fillStyle = THEME.panel;
+    ctx.fillStyle = '#ffdfa0';
     ctx.fill();
-    ctx.strokeStyle = THEME.gold;
+    ctx.strokeStyle = '#a96534';
     ctx.lineWidth = L.gu(0.08);
     ctx.stroke();
-    drawTreasureChest(ctx, r.x + r.w / 2, r.y + r.h * 0.42, Math.min(L.gu(2), r.h * 0.8));
-    ctx.fillStyle = THEME.subtext;
+    const bob = this.mode === 'reveal' ? Math.sin(this.reveal.t / REVEAL_DUR * Math.PI) * L.gu(0.15) : 0;
+    drawTreasureChest(ctx, r.x + r.w / 2, r.y + L.gu(2.1) - bob, L.gu(3.8));
+    ctx.fillStyle = '#674631';
     ctx.font = font(L.font(0.024), 'normal');
     // reveal 중이면 나머지 수를 보여준다
-    const label = this.mode === 'reveal' ? `나머지 ${this.r}` : '나머지 통';
-    ctx.fillStyle = this.mode === 'reveal' ? THEME.gold : THEME.subtext;
+    const label = this.failure?.missing ? `${this.failure.missing}개 부족` : this.mode === 'reveal' || this.mode === 'collect' ? (this.r ? `나머지 ${this.r}개!` : '딱 나눴다!') : '나누고 담아요';
     ctx.fillText(label, r.x + r.w / 2, r.y + r.h - L.gu(0.5));
+    if (this.failure?.missing) {
+      ctx.globalAlpha = 0.3;
+      const n = Math.min(6, this.failure.missing);
+      for (let i=0;i<n;i++) drawGem(ctx, r.x+r.w/2+(i-(n-1)/2)*L.gu(0.55), r.y+L.gu(0.55), L.gu(0.22));
+    }
     ctx.restore();
   },
 
@@ -704,20 +779,24 @@ export const g10Treasure = {
       const over = showOver && this.counts[i] === max;
       ctx.save();
       roundRect(ctx, r.x, r.y, r.w, r.h, L.gu(0.4));
-      ctx.fillStyle = THEME.panel;
+      ctx.fillStyle = ['#fff1d6', '#e1f5ee', '#ffe8ee'][i % 3];
       ctx.fill();
-      ctx.strokeStyle = over ? THEME.wrong : 'rgba(255,255,255,0.2)';
+      ctx.strokeStyle = over ? THEME.wrong : '#c99966';
       ctx.lineWidth = over ? L.gu(0.18) : L.gu(0.06);
       ctx.stroke();
 
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       // 해적
-      drawPirate(ctx, r.x + r.w / 2, r.y + r.h * 0.3, Math.min(L.gu(2.3), r.h * 0.55, r.w * 0.9));
+      const bounce = Math.sin((this.pirateBounces[i] || 0) / 0.18 * Math.PI) * L.gu(0.16);
+      drawPirate(ctx, r.x + r.w / 2, r.y + r.h * 0.3 - bounce, Math.min(L.gu(2.3), r.h * 0.55, r.w * 0.9));
       // 받은 개수(크게 — "몇 개씩 갔는지")
-      ctx.fillStyle = '#fff';
-      ctx.font = font(Math.min(L.font(0.06), r.h * 0.4));
-      ctx.fillText(`💎${this.counts[i]}`, r.x + r.w / 2, r.y + r.h * 0.72);
+      ctx.fillStyle = '#674631';
+      ctx.font = font(Math.min(L.font(0.04), r.h * 0.3));
+      ctx.fillText(`${this.counts[i]}개`, r.x + r.w / 2, r.y + r.h * 0.75);
+      for (let j = 0; j < Math.min(9, this.counts[i]); j++) {
+        drawGem(ctx, r.x + L.gu(0.27) + (j % 3) * L.gu(0.24), r.y + r.h - L.gu(0.23) - Math.floor(j / 3) * L.gu(0.24), L.gu(0.13));
+      }
       if (over) {
         ctx.fillStyle = THEME.wrong;
         ctx.font = font(L.font(0.024), 'normal');
@@ -728,36 +807,48 @@ export const g10Treasure = {
   },
 
   _drawButtons(ctx) {
-    // 개념 재접근 버튼(항상)
-    this._btn(ctx, this._btnConcept(), '❓개념', THEME.panel, L.font(0.026));
-
-    // 예측 모드(Lv5): [−] [ n개씩 ] [+] + [n개씩 나눠주기!]
-    if (this.predict) {
-      this._btn(ctx, this._btnPredMinus(), '−', THEME.accent, L.font(0.06));
-      this._btn(ctx, this._btnPredPlus(), '+', THEME.accent, L.font(0.06));
-      this._drawPredValue(ctx);
-      this._btn(ctx, this._btnDone(), `${this.predictVal}개씩 나눠주기!`, THEME.correct, L.font(0.04));
+    if (this.mode === 'collect' || this.mode === 'reveal') {
+      if (this.practice) this._btn(ctx, this._btnConcept(), '본게임', THEME.panel, L.font(0.026));
+      this._btn(ctx, this._btnDone(), '남은 보석 담기  →', '#a5693d', L.font(0.037));
       return;
     }
-
+    this._btn(ctx, this._btnConcept(), this.practice ? '본게임' : '연습', THEME.panel, L.font(0.026));
+    if (!this.practice) {
+      this._btn(ctx, this._btnPredMinus(), '−', '#218e9a', L.font(0.05));
+      this._btn(ctx, this._btnPredPlus(), '+', '#218e9a', L.font(0.05));
+      this._drawPredValue(ctx);
+      const label = this.predictVal ? `${this.predictVal}개씩 한 번에 발사!` : '몇 개씩 줄지 먼저 골라요';
+      this._btn(ctx, this._btnDone(), label, '#218e9a', L.font(0.035));
+      return;
+    }
     this._btn(ctx, this._btnReset(), '↺ 다시', THEME.panel, L.font(0.03));
-    // 돌리기 버튼: 제한이 있으면 남은 횟수 표시(⚠️ 0이어도 비활성화/회색 처리하지 않는다 — 눌러 안내).
-    let roundLabel = '🔄 한 바퀴 돌리기';
-    if (this._roundLimited()) roundLabel += ` (${this.roundsLeft})`;
-    this._btn(ctx, this._btnRound(), roundLabel, this.roundPulse > 0 ? THEME.gold : THEME.accent, L.font(0.034));
-    this._btn(ctx, this._btnDone(), '✅ 다 나눴어요!', THEME.correct, L.font(0.044));
+    this._btn(ctx, this._btnRound(), '레버 · 1개씩!', '#218e9a', L.font(0.03));
+    this._btn(ctx, this._btnDone(), '남은 보석 담기 →', '#a5693d', L.font(0.035));
   },
 
   _drawPredValue(ctx) {
-    const m = this._btnPredMinus();
-    const p = this._btnPredPlus();
-    const cx = (m.x + m.w + p.x) / 2;
+    const r = this._quantityRect(), cx = r.x+r.w/2;
     ctx.save();
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillStyle = THEME.gold;
-    ctx.font = font(L.font(0.06));
-    ctx.fillText(`${this.predictVal}개씩`, cx, this._btnRow() + L.gu(1.2));
+    roundRect(ctx,r.x,r.y,r.w,r.h,L.gu(0.25));ctx.fillStyle='#fff2cd';ctx.fill();
+    ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillStyle='#674631';ctx.font=font(L.font(0.031));
+    ctx.fillText(this.predictVal ? `한 명당 ${this.predictVal}개` : '한 명당 ?개',cx,r.y+L.gu(0.85));
+    for(let i=0;i<9;i++){
+      ctx.fillStyle=this.predictVal===i+1?'#218e9a':'#ceba8c';
+      const x=r.x+L.gu(0.25)+(r.w-L.gu(0.5))*i/8;
+      ctx.beginPath();ctx.arc(x,r.y+r.h-L.gu(0.55),L.gu(this.predictVal===i+1?0.11:0.06),0,Math.PI*2);ctx.fill();
+    }
+    ctx.restore();
+  },
+
+  _drawFailure(ctx) {
+    const f=this.failure;
+    const text=f.missing ? `${f.k}개씩 주려면 ${f.needed}개 필요 · ${f.missing}개 부족해요`
+      : `${f.k}개씩 나누면 ${f.left}개가 남아 한 번 더 나눌 수 있어요`;
+    ctx.save();ctx.fillStyle='#fff2cd';
+    roundRect(ctx,L.safe,L.zone.controls-L.gu(2.1),L.W-L.safe*2,L.gu(1.8),L.gu(0.3));ctx.fill();
+    ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillStyle='#674631';ctx.font=font(L.font(0.028));
+    const size=Math.min(L.font(0.028),L.font(0.028)*(L.W-L.safe*3)/ctx.measureText(text).width);ctx.font=font(size);
+    ctx.fillText(text,L.W/2,L.zone.controls-L.gu(1.2));
     ctx.restore();
   },
 
@@ -784,7 +875,7 @@ export const g10Treasure = {
     else if (this.hint.type === 'more') msg = '아직 더 나눌 수 있어요!';
     else if (this.hint.type === 'nofull') msg = `${this.pile}개로는 ${this.divisor}명에게 못 나눠요`;
     else if (this.hint.type === 'giveleast') msg = '적게 받은 해적부터 주세요!';
-    else if (this.hint.type === 'limit') msg = '돌리기를 다 썼어요! 해적을 눌러 직접 나눠주세요';
+    else if (this.hint.type === 'choose') msg = '몇 개씩 줄지 먼저 골라요!';
     if (!msg) return;
     ctx.save();
     ctx.globalAlpha = this.hint.t < HINT_DUR - 0.4 ? 1 : Math.max(0, (HINT_DUR - this.hint.t) / 0.4);
@@ -802,7 +893,6 @@ export const g10Treasure = {
   },
 
   _drawReveal(ctx) {
-    const p = Math.min(1, this.reveal.t / (REVEAL_DUR * 0.6));
     // 이동하는 나머지 보석
     for (const g of this.movingGems) {
       const t = ease(g.t);
@@ -810,103 +900,99 @@ export const g10Treasure = {
       const y = g.sy + (g.dy - g.sy) * t;
       ctx.save();
       ctx.globalAlpha = 1 - g.t * 0.3;
-      ctx.font = font(L.font(0.04));
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText('💎', x, y);
+      drawGem(ctx, x, y - Math.sin(t * Math.PI) * L.gu(0.5), L.gu(0.36));
       ctx.restore();
     }
-    // 조립되는 식
-    const lines = this.r > 0 ? [`${this.dividend} ÷ ${this.divisor} = ${this.q} … ${this.r}`, `${this.dividend} = ${this.divisor} × ${this.q} + ${this.r}`] : [`${this.dividend} ÷ ${this.divisor} = ${this.q}`];
+  },
+
+  _drawReceipt(ctx) {
+    if (!this.receipt) return;
+    const r = this.receipt;
     ctx.save();
-    ctx.globalAlpha = p;
+    ctx.globalAlpha = Math.min(1, (2.4 - r.t) / 0.3);
+    roundRect(ctx, L.safe, L.zone.controls - L.gu(2.1), L.W - L.safe * 2, L.gu(1.8), L.gu(0.3));
+    ctx.fillStyle = '#fff8e9'; ctx.fill();
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillStyle = THEME.gold;
-    let size = L.font(0.06);
-    ctx.font = font(size);
-    const maxW = L.W - L.safe * 2;
-    const w0 = ctx.measureText(lines[0]).width;
-    if (w0 > maxW) size = Math.max(L.font(0.04), (size * maxW) / w0);
-    ctx.font = font(size);
-    ctx.fillText(lines[0], L.W / 2, L.y(0.4));
-    if (lines[1]) {
-      ctx.fillStyle = THEME.text;
-      ctx.font = font(size * 0.7);
-      ctx.fillText(lines[1], L.W / 2, L.y(0.4) + L.gu(2));
+    ctx.fillStyle = '#674631'; ctx.font = font(L.font(0.027));
+    ctx.fillText(`방금 나눈 식  ${r.text}`, L.W / 2, L.zone.controls - L.gu(1.5));
+    ctx.font = font(L.font(0.022), 'normal');
+    ctx.fillText(r.detail, L.W / 2, L.zone.controls - L.gu(0.65));
+    ctx.restore();
+  },
+
+  _drawFlights(ctx) {
+    for (const f of this.flights) {
+      if (f.t < 0 || f.landed) continue;
+      const p = clamp(f.t / f.dur, 0, 1);
+      const x = f.sx + (f.dx - f.sx) * p;
+      const y = f.sy + (f.dy - f.sy) * p - Math.sin(p * Math.PI) * L.gu(1.2);
+      ctx.save();
+      ctx.strokeStyle = '#ffd780'; ctx.lineWidth = L.gu(0.08);
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x - (f.dx - f.sx) * 0.05, y - L.gu(0.5)); ctx.stroke();
+      drawGem(ctx, x, y, L.gu(this._feverEasyActive() ? 0.45 : 0.36));
+      ctx.restore();
+    }
+    if (this.returnPulse > 0) {
+      const p = 1 - this.returnPulse / 0.3, a = this._pileAnchor(), c = this._chestRect();
+      // 수량을 변경하지 않는 되돌아오기 신호. 실제 보석 수와 구분한다.
+      ctx.save(); ctx.globalAlpha = 1 - p; ctx.fillStyle = '#674631';
+      ctx.textAlign = 'center'; ctx.font = font(L.font(0.04));
+      ctx.fillText('↶', c.x + (a.x - c.x) * p, a.y - L.gu(0.5)); ctx.restore();
+    }
+  },
+
+  _drawCargo(ctx) {
+    const voyages = Math.floor(this.cargoCount / CARGO_PER_SHIP);
+    const slots = this.cargoCount ? (this.cargoCount - 1) % CARGO_PER_SHIP + 1 : 0;
+    const y = L.zone.floor + L.gu(0.8);
+    const left = L.safe + L.gu(0.8), right = L.W - L.safe - L.gu(0.8);
+    ctx.save();
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = font(L.font(0.024)); ctx.fillStyle = '#614330';
+    ctx.fillText(this.practice ? '연습 중 · 점수와 짐은 늘지 않아요' : `내 보물선 · 짐 ${this.cargoCount}개 · 출항 ${voyages}번`, L.W / 2, y - L.gu(1.35));
+    ctx.strokeStyle = '#478eaa'; ctx.lineWidth = L.gu(0.06);
+    ctx.beginPath();
+    for (let i = 0; i <= 36; i++) {
+      const x = left + (right - left) * i / 36;
+      const wy = y + L.gu(0.8) + Math.sin(i * 0.7 + this.time * 2) * L.gu(0.06);
+      if (!i) ctx.moveTo(x, wy); else ctx.lineTo(x, wy);
+    }
+    ctx.stroke();
+    ctx.fillStyle = '#b47649'; ctx.strokeStyle = '#704932'; ctx.lineWidth = L.gu(0.06);
+    ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(right, y); ctx.lineTo(right - L.gu(0.7), y + L.gu(0.65));
+    ctx.quadraticCurveTo(L.W / 2, y + L.gu(0.95), left + L.gu(0.7), y + L.gu(0.65)); ctx.closePath(); ctx.fill(); ctx.stroke();
+    const step = (right - left - L.gu(1.4)) / CARGO_PER_SHIP;
+    const rewards = ['📦', '🐚', '💎', '🎁', '👑', '🏴‍☠️'];
+    for (let i = 0; i < CARGO_PER_SHIP; i++) {
+      const x = left + L.gu(0.7) + step * (i + 0.5);
+      const bounce = i === slots - 1 ? Math.sin(this.cargoPulse / 0.6 * Math.PI) * L.gu(0.18) : 0;
+      ctx.globalAlpha = i < slots ? 1 : 0.22;
+      ctx.font = font(L.font(0.03));
+      ctx.fillText(rewards[i], x, y - L.gu(0.38) - bounce);
     }
     ctx.restore();
   },
 
   _drawConcept(ctx) {
-    ctx.save();
-    ctx.fillStyle = 'rgba(10,15,25,0.92)';
-    ctx.fillRect(0, L.zone.hudBottom, L.W, L.H - L.zone.hudBottom);
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-
-    ctx.fillStyle = THEME.gold;
-    ctx.font = font(L.font(0.05));
-    ctx.fillText('나머지가 뭘까?', L.W / 2, L.y(0.2));
-    ctx.fillStyle = THEME.text;
-    ctx.font = font(L.font(0.032), 'normal');
-    ctx.fillText('사탕 17개를 5개씩 묶어보자!', L.W / 2, L.y(0.26));
-
-    // 17개 사탕을 5개씩 3묶음 + 2개 남음. conceptT 에 따라 묶음이 하나씩 생긴다.
-    const total = 17;
-    const per = 5;
-    const groups = Math.floor(total / per); // 3
-    const shownGroups = Math.min(groups, Math.floor(this.conceptT / 0.8));
-    const cellSize = L.gu(1.3);
-    const areaTop = L.y(0.34);
-    const groupGapY = L.gu(2.0);
-    for (let gi = 0; gi < groups; gi++) {
-      const gy = areaTop + gi * groupGapY;
-      const gx0 = L.W / 2 - (per * cellSize) / 2 + cellSize / 2;
-      const bound = gi < shownGroups;
-      if (bound) {
-        // 묶음 테두리
-        ctx.strokeStyle = THEME.correct;
-        ctx.lineWidth = L.gu(0.12);
-        roundRect(ctx, gx0 - cellSize * 0.7, gy - cellSize * 0.7, per * cellSize + cellSize * 0.4, cellSize * 1.4, L.gu(0.6));
-        ctx.stroke();
-      }
-      for (let k = 0; k < per; k++) {
-        ctx.font = font(L.font(0.036));
-        ctx.fillStyle = '#fff';
-        ctx.fillText('🍬', gx0 + k * cellSize, gy);
-      }
+    ctx.save();ctx.fillStyle='#fff4d7';ctx.fillRect(0,L.zone.hudBottom,L.W,L.H-L.zone.hudBottom);
+    ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillStyle='#674631';ctx.font=font(L.font(0.045));
+    ctx.fillText('해적 보물 분배소',L.W/2,L.zone.playTop);
+    ctx.font=font(L.font(0.033));
+    ctx.fillText('보석 17개를 5명에게 똑같이!',L.W/2,L.zone.playTop+L.gu(2));
+    for(let i=0;i<5;i++){
+      const x=L.safe+L.gu(1.5)+(L.W-L.safe*2-L.gu(3))*i/4;
+      drawPirate(ctx,x,L.zone.playTop+L.gu(5),L.gu(2));
+      ctx.fillStyle='#674631';ctx.font=font(L.font(0.032));ctx.fillText('3개',x,L.zone.playTop+L.gu(6.7));
     }
-    // 남은 2개(나머지)
-    const remY = areaTop + groups * groupGapY;
-    const showRemain = this.conceptT >= groups * 0.8;
-    for (let k = 0; k < total - groups * per; k++) {
-      ctx.font = font(L.font(0.036));
-      ctx.globalAlpha = showRemain ? 1 : 0.25;
-      ctx.fillText('🍬', L.W / 2 - cellSize / 2 + k * cellSize, remY);
-      ctx.globalAlpha = 1;
-    }
-    if (showRemain) {
-      ctx.fillStyle = THEME.gold;
-      ctx.font = font(L.font(0.034));
-      ctx.fillText('← 남은 2개가 나머지!', L.W / 2 + L.gu(3.4), remY);
-      ctx.fillStyle = THEME.text;
-      ctx.font = font(L.font(0.03), 'normal');
-      ctx.fillText('17 ÷ 5 = 3 … 2', L.W / 2, remY + L.gu(1.8));
-      ctx.fillStyle = THEME.subtext;
-      ctx.fillText('나누고 남은 것을 나머지라고 해!', L.W / 2, remY + L.gu(3));
-    }
-
-    // 시작/닫기 버튼
-    const b = this._btnConceptClose();
-    roundRect(ctx, b.x, b.y, b.w, b.h, L.gu(0.5));
-    ctx.fillStyle = THEME.correct;
-    ctx.fill();
-    ctx.fillStyle = '#fff';
-    ctx.font = font(L.font(0.04));
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(this.conceptReturn === 'start' ? '시작하기 →' : '닫기', b.x + b.w / 2, b.y + b.h / 2);
+    ctx.font=font(L.font(0.037));ctx.fillText('17 ÷ 5 = 3 … 2',L.W/2,L.zone.playTop+L.gu(9));
+    ctx.font=font(L.font(0.029),'normal');
+    ctx.fillText('① 몇 개씩 줄지 고르기',L.W/2,L.zone.playTop+L.gu(11.3));
+    ctx.fillText('② 한 번에 발사해서 확인!',L.W/2,L.zone.playTop+L.gu(12.7));
+    ctx.fillText('③ 맞혔으면 남은 보석 담기',L.W/2,L.zone.playTop+L.gu(14.1));
+    ctx.fillText('연습은 자유 배분 · 점수 없음',L.W/2,L.zone.playTop+L.gu(16.4));
+    this._btn(ctx,this._btnConceptClose(),'먼저 나누기 연습','#218e9a',L.font(0.029));
+    this._btn(ctx,this._btnConceptSkip(),'바로 본게임 시작','#a5693d',L.font(0.029));
     ctx.restore();
   },
 
@@ -919,23 +1005,33 @@ export const g10Treasure = {
       ctx.font = font(t.size);
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      drawRewardText(ctx, t.text, t.x, t.y - p * L.gu(2));
+      drawRewardText(ctx, t.text, t.x, t.y - p * L.gu(0.65));
       ctx.restore();
     }
   },
 
   onHover(x, y) {
-    if (this.mode === 'concept') return hitRect(this._btnConceptClose(), x, y);
-    if (this.mode === 'reveal') return false;
-    if (this.predict) {
-      return hitRect(this._btnConcept(), x, y) || hitRect(this._btnPredMinus(), x, y) || hitRect(this._btnPredPlus(), x, y) || hitRect(this._btnDone(), x, y);
-    }
-    if (hitRect(this._btnDone(), x, y) || hitRect(this._btnRound(), x, y) || hitRect(this._btnReset(), x, y) || hitRect(this._btnConcept(), x, y)) return true;
-    for (const r of this._pirateRects()) if (hitRect(r, x, y)) return true;
-    return false;
+    if(this.mode==='concept')return hitRect(this._btnConceptClose(),x,y)||hitRect(this._btnConceptSkip(),x,y);
+    if(this.practice&&hitRect(this._btnConcept(),x,y))return true;
+    if(this.mode==='collect')return [this._chestRect(),this._pileRect(),this._btnDone()].some(r=>hitRect(r,x,y));
+    if(this.mode!=='play')return false;
+    const buttons=this.practice?[this._btnConcept(),this._btnReset(),this._btnRound(),this._btnDone(),this._chestRect(),this._pileRect(),...this._pirateRects()]
+      :[this._btnConcept(),this._btnPredMinus(),this._btnPredPlus(),this._quantityRect(),this._btnDone()];
+    return buttons.some(r=>hitRect(r,x,y));
   },
-  clearHover() {},
-  onKey() {},
+  clearHover() { this._cancelGesture(); },
+  onKey(ev) {
+    if(ev.repeat||this.engine.freeze?.active)return;
+    if(this.mode==='collect'&&ev.key==='Enter'){ev.preventDefault?.();this._judge();return;}
+    if(this.mode!=='play'||(!this.practice&&this._feverEasyActive()!==this.wasFever))return;
+    if(!this.practice&&/^[1-9]$/.test(ev.key))this._setQuantity(Number(ev.key));
+    if(!this.practice&&ev.key==='ArrowLeft'){ev.preventDefault?.();this._setQuantity(Math.max(1,this.predictVal-1));}
+    if(!this.practice&&ev.key==='ArrowRight'){ev.preventDefault?.();this._setQuantity(Math.min(9,this.predictVal+1));}
+    if(ev.key===' '||ev.key==='Enter'){
+      ev.preventDefault?.();
+      if(this.practice){ev.key===' '?this._dealRound():this._judge();}else this._fire();
+    }
+  },
 
   _haptic(ms) {
     if (typeof navigator !== 'undefined' && navigator.vibrate) {
@@ -950,6 +1046,7 @@ export const g10Treasure = {
   _feverIntensity() {
     const f = this.engine.fever;
     if (!f) return 0;
+    if (this.practice) return 0;
     if (f.active) return 1;
     const peak = (f.cfg && f.cfg.speedMult ? f.cfg.speedMult : 1.35) - 1;
     return peak > 0 ? Math.max(0, (f.speedMultiplier - 1) / peak) : 0;
@@ -968,23 +1065,33 @@ export const g10Treasure = {
     ctx.restore();
   },
   _drawFeverBanner(ctx) {
-    if (!this.feverBanner) return;
+    if (!this.feverBanner || this.hint || this.failure || this.practice || this.mode === 'concept') return;
     const b = this.feverBanner;
     const prog = b.t / b.dur;
     ctx.save();
     ctx.globalAlpha = prog < 0.7 ? 1 : Math.max(0, 1 - (prog - 0.7) / 0.3);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = font(L.font(0.07));
-    ctx.lineWidth = L.gu(0.25);
-    ctx.strokeStyle = 'rgba(0,0,0,0.55)';
-    ctx.strokeText(`FEVER +${b.points}`, L.W / 2, L.H * 0.95);
-    ctx.fillStyle = THEME.gold;
-    ctx.fillText(`FEVER +${b.points}`, L.W / 2, L.H * 0.95);
+    roundRect(ctx, L.safe, L.zone.controls - L.gu(2.1), L.W - L.safe * 2, L.gu(1.8), L.gu(0.3));
+    ctx.fillStyle = '#ffefbb'; ctx.fill();
+    const label = `피버에서 +${b.points}점!`;
+    ctx.font = font(L.font(0.035));
+    const size = Math.min(L.font(0.035), L.font(0.035) * (L.W - L.safe * 3) / ctx.measureText(label).width);
+    ctx.font = font(size); ctx.fillStyle = '#674631';
+    ctx.fillText(label, L.W / 2, L.zone.controls - L.gu(1.2));
     ctx.restore();
   },
 
   destroy() {
+    this.engine?.canvas?.removeEventListener('touchcancel', this._cancelGesture, true);
+    this.engine?.canvas?.removeEventListener('touchstart', this._pauseGesture, true);
+    this.engine?.canvas?.removeEventListener('mousedown', this._pauseGesture, true);
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('blur', this._cancelGesture);
+      window.removeEventListener('keydown', this._pauseGesture, true);
+    }
+    this._clearBoardEffects();
+    this.savedNormal = this.receipt = this.practiceReturn = null;
     this.engine = null;
     this.counts = [];
     this.problem = null;
@@ -1009,4 +1116,15 @@ function pick(arr) {
 }
 function ease(t) {
   return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+}
+
+// 코드 기반 장난감 보석. 논리 크기는 L에서 받은 반지름으로만 결정한다.
+function drawGem(ctx, x, y, r) {
+  ctx.save(); ctx.translate(x, y);
+  ctx.beginPath(); ctx.moveTo(-r, -r * 0.35); ctx.lineTo(-r * 0.5, -r * 0.85);
+  ctx.lineTo(r * 0.5, -r * 0.85); ctx.lineTo(r, -r * 0.35); ctx.lineTo(0, r); ctx.closePath();
+  ctx.fillStyle = '#62d5e7'; ctx.fill(); ctx.strokeStyle = '#218da8'; ctx.lineWidth = r * 0.13; ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(-r, -r * 0.35); ctx.lineTo(r, -r * 0.35); ctx.lineTo(0, r);
+  ctx.lineTo(r * 0.35, -r * 0.35); ctx.lineTo(-r * 0.5, -r * 0.85);
+  ctx.strokeStyle = '#e5ffff'; ctx.stroke(); ctx.restore();
 }
