@@ -369,17 +369,29 @@ export class UI {
     ctx.fillStyle = THEME.subtext;
     ctx.fillText('아쉬워요! 정답을 볼까요?', cx, cy - 140);
 
-    // 식 전체 120px
+    // 긴 나머지 식도 안전 여백 안에 표시한다. 문자열을 생략하지 않고 글꼴만 축소.
     const lines = fullEquationLines(problem);
+    const drawEquation = (text, y, preferredSize) => {
+      const available = L.W - L.safe * 2;
+      let size = preferredSize;
+      ctx.font = font(size);
+      // 대체 폰트/힌팅 때문에 크기와 실제 폭이 정확히 비례하지 않을 수 있어 다시 측정.
+      for (let i = 0; i < 4; i++) {
+        const width = ctx.measureText(text).width;
+        if (width <= available) break;
+        size = Math.max(1, Math.floor(size * available / width) - 1);
+        ctx.font = font(size);
+      }
+      // 폰트별 소수점 반올림 차이도 마지막 그리기 폭에서 제한한다.
+      ctx.fillText(text, cx, y, available);
+    };
     ctx.fillStyle = THEME.gold;
     let ly = cy;
-    ctx.font = font(120);
-    ctx.fillText(lines[0], cx, ly);
+    drawEquation(lines[0], ly, L.gu(3));
     if (lines[1]) {
       ly += 130;
-      ctx.font = font(80);
       ctx.fillStyle = THEME.text;
-      ctx.fillText(lines[1], cx, ly);
+      drawEquation(lines[1], ly, L.gu(2));
     }
 
     // 진행 게이지 (남은 정지 시간 시각화)
