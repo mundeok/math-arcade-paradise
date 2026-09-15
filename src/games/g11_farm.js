@@ -1,11 +1,11 @@
-// 곱셈 농장 — 숫자 선택 대신 직사각형 배열을 '영구 밭'에 채워 넣는 구성형 게임(재설계 2026-09-15).
-//   ⚠️ 재설계 핵심(SPEC §4 1️⃣1️⃣): 밭은 라운드 끝까지 유지된다. 정답을 낼 때마다 배치한 칸이 작물로
-//      남고, 다음 문제도 같은 밭의 남은 빈 칸에 넣어야 한다. 이미 심긴 작물·잡초 때문에 "목표 칸이면
-//      아무 배열이나 정답"이 진짜 전략이 된다(3×4는 안 들어가지만 6×2는 들어간다).
-//   - 잡초: 정답을 낼수록 빈 칸을 막아 압박을 준다(느리게 시작→점점 빨라짐, 40% 상한, 피버 중 정지).
-//   - 종료: 현재 목표를 놓을 자리가 밭 어디에도 없으면 라운드 종료(engine.endGame). '오답' 아님.
-//   - 드래그는 미리보기만(터치 취소로 실수 오답 방지). 제출은 별도의 큰 [수확!] 버튼으로만.
-//   core/scenes·다른 게임 파일은 건드리지 않는다(SPEC §1.3·§6).
+// 곱셈 농장 — 60초 수확 챌린지(재설계 2026-09-15, 시간 러너판).
+//   구조: 9×9 '영구 밭'에 직사각형 배열을 끼워 넣어 수확한다. 종료는 밭이 차서가 아니라 **시간(60초)**이며,
+//         **연속 수확할수록 시간이 더 붙는다**("잘하면 더 오래" — 피버 정신과 결이 같음).
+//   - 밭이 가득 차 현재 목표를 놓을 자리가 없으면 → 라운드 종료가 아니라 **'밭 정리!'**(비우고 보너스 시간·점수)
+//     후 새 밭에서 계속. 채우는 공간 전략(방향 전환·겹침 회피·잡초)은 그대로 살린다.
+//   - 오답(계산 틀림)=시간 −3초(라이프 미차감). 겹침=무페널티 피드백. 목표 칸수는 작게(≤12) 제한해
+//     한 번에 밭을 다 채우지 못하게 한다(여러 번에 걸쳐 채움).
+//   드래그는 미리보기만, 제출은 [수확!] 버튼. core/scenes·다른 게임 파일은 건드리지 않는다(§1.3·§6).
 import { L } from '../core/layout.js';
 import { THEME, font, roundRect, hit } from '../core/ui.js';
 import { drawPlayBackdrop } from '../art/toyArt.js';
@@ -14,6 +14,11 @@ const GRID = 9;
 const CELLS = GRID * GRID;
 const EMPTY = 0, CROP = 1, WEED = 2;
 const WEED_CAP = Math.floor(CELLS * 0.4); // 잡초 상한(완전 봉쇄 방지)
+const MAX_TARGET = 12; // 한 번에 놓는 배열 크기 상한(밭을 여러 번에 걸쳐 채우도록). 3×4·2×6 등 방향전환 살아있음.
+const ROUND_SEC = 60;  // 기본 제한시간(교사 timeScale 반영)
+const WRONG_PENALTY = 3; // 오답 시 시간 차감(초)
+const CLEAR_BONUS_SEC = 4; // '밭 정리' 보너스 시간(초)
+const CLEAR_BONUS_PTS = 200; // '밭 정리' 보너스 점수
 
 export const g11Farm = {
   id: 'g11_farm',
@@ -27,12 +32,11 @@ export const g11Farm = {
   comboMilestones: { 5: '쑥쑥!', 10: '풍년이다!', 20: '대풍년!' },
 
   tutorial: {
-    text: '밭에 배열을 그려 목표 칸을 채워! 빈 자리가 없어지기 전에 최대한 많이 수확하자.',
+    text: '60초 안에 최대한 많이 수확! 연속 수확하면 시간이 늘어나. 빈 자리에 배열을 끼워 넣자.',
     draw(ctx) {
       const cell = L.gu(1.6);
       const x = L.W / 2 - cell * 3;
       const y = L.gu(2);
-      // 이미 심긴 작물(좌) + 잡초(가시덤불) 사이에 새 배열을 끼워 넣는 그림
       const map = [
         [1, 1, 0, 0, 2, 0],
         [1, 1, 0, 0, 0, 0],
@@ -48,7 +52,6 @@ export const g11Farm = {
           if (v === 2) drawWeed(ctx, cx + cell / 2, cy + cell / 2, cell);
         }
       }
-      // 끼워 넣을 후보(2×2) 강조
       ctx.strokeStyle = THEME.gold;
       ctx.lineWidth = L.gu(0.14);
       roundRect(ctx, x + 2 * cell + L.gu(0.06), y + L.gu(0.06), cell * 2 - L.gu(0.12), cell * 2 - L.gu(0.12), L.gu(0.15));
@@ -69,10 +72,15 @@ export const g11Farm = {
     this.cropCount = 0;
     this.weedCount = 0;
     this.answered = 0; // 정답 누적(잡초 성장 속도 기준)
-    this.reward = null; // 정답 점수 피드백 {text, points, t}
-    this.blockMsg = 0; // "겹쳐서 안 돼요" 잔여 시간
-    this.ending = null; // 종료 스냅샷 배너 {t, dur}
-    this.harvestT = 0;
+    this.harvests = 0; // 총 수확 수(결과용)
+    this.fieldsCleared = 0; // 정리한 밭 수
+    this.bestStreak = 0; // 최고 연속 수확
+    this.timeLeft = ROUND_SEC * (engine.settings.timeScale || 1);
+    this.timeFlash = 0; // 시간 증감 강조
+    this.reward = null; // 정답 피드백 {text, points, t}
+    this.blockMsg = 0; // "겹쳐서 안 돼요"
+    this.clearMsg = 0; // "밭 정리!"
+    this.ending = null; // 시간 종료 배너
     this.wasFever = false;
     this.feverStartScore = 0;
     this.anchor = null;
@@ -80,7 +88,7 @@ export const g11Farm = {
     this.hasSelection = false;
     this.dragging = false;
     this.buttonArmed = false;
-    this.kRows = 1; this.kCols = 1; // 키보드 폴백용 크기
+    this.kRows = 1; this.kCols = 1;
     this.elapsed = 0;
     this._loadProblem();
   },
@@ -103,16 +111,18 @@ export const g11Farm = {
     const e = this.engine;
     if (this._isFever() && !this.wasFever) this.feverStartScore = e.scoreManager.score;
     this.wasFever = this._isFever();
-    // 공통 생성기를 사용해 복습 큐·중복 방지를 유지. 혼합에서는 두 연산을 번갈아, 교사 고정은 생성기 우선.
-    const mode = this.answered % 2 ? 'divide' : 'multiply';
-    this.problem = e.problemGenerator.nextProblem({
-      maxLevel: this.wasFever ? 1 : this.maxLevel,
-      blankRatio: 0,
-      opMode: mode,
-    });
-    this.division = this.problem.op === '÷';
-    this.target = this.division ? this.problem.a : this.problem.answer;
-    this.fixedRows = this.division ? this.problem.b : 0;
+    // 지금 밭에 들어가는 작은 목표(≤MAX_TARGET)를 찾을 때까지 재생성. 못 찾으면 밭을 정리(비우기)하고 재시도.
+    let fits = false;
+    for (let t = 0; t < 24 && !fits; t++) {
+      const mode = (this.answered + t) % 2 ? 'divide' : 'multiply';
+      const lvl = this.wasFever ? 1 : t < 8 ? this.maxLevel : 1; // 안 되면 Lv1(작은 목표)로 낮춰 자리 확보
+      const p = e.problemGenerator.nextProblem({ maxLevel: lvl, blankRatio: 0, opMode: mode });
+      this.problem = p;
+      this.division = p.op === '÷';
+      this.target = this.division ? p.a : p.answer;
+      this.fixedRows = this.division ? p.b : 0;
+      if (this.target <= MAX_TARGET && this._canFitAnywhere()) fits = true;
+    }
     this.hasSelection = false;
     this.dragging = false;
     this.buttonArmed = false;
@@ -122,18 +132,33 @@ export const g11Farm = {
     this.kCols = 1;
     this.elapsed = 0;
     e.markQuestionStart();
-    // ⚠️ 이 문제를 놓을 자리가 밭 어디에도 없으면 라운드 종료(오답 아님).
-    if (!this._canFitAnywhere()) this._endRound();
+    // 작은 목표조차 들어갈 자리가 없다 = 밭이 가득 → 라운드 종료가 아니라 '밭 정리'하고 계속(시간 러너).
+    if (!fits) this._clearField();
   },
 
-  // 현재 문제로 놓을 수 있는 (줄, 칸) 조합. 곱셈은 방향 전환 포함 모든 약수쌍, 나눗셈은 줄 수 고정 1쌍.
+  _clearField() {
+    const e = this.engine;
+    this.grid = Array.from({ length: GRID }, () => new Array(GRID).fill(EMPTY));
+    const filled = this.cropCount;
+    this.cropCount = 0;
+    this.weedCount = 0;
+    this.fieldsCleared++;
+    this.timeLeft += CLEAR_BONUS_SEC * (e.settings.timeScale || 1);
+    this.timeFlash = 0.5;
+    e.scoreManager.addPoints(CLEAR_BONUS_PTS);
+    this.clearMsg = 1.0;
+    e.ui.showComboText(`🌾 밭 정리! +${CLEAR_BONUS_SEC}초`, true);
+    e.ui.flash('rgba(255,220,140,0.3)', 0.1);
+    e.particles.emit(L.W / 2, this._layout().board.y + this._layout().board.h / 2, 'sparkle', THEME.gold, Math.min(40, 12 + filled));
+    e.sound.play('fanfare');
+    this._loadProblem(); // 빈 밭이므로 이번엔 반드시 들어간다(무한루프 없음).
+  },
+
   _targetPairs() {
     const pairs = [];
     if (this.division) {
       const cols = this.target / this.fixedRows;
-      if (this.fixedRows >= 1 && this.fixedRows <= GRID && Number.isInteger(cols) && cols >= 1 && cols <= GRID) {
-        pairs.push([this.fixedRows, cols]);
-      }
+      if (this.fixedRows >= 1 && this.fixedRows <= GRID && Number.isInteger(cols) && cols >= 1 && cols <= GRID) pairs.push([this.fixedRows, cols]);
     } else {
       for (let r = 1; r <= GRID; r++) {
         if (this.target % r !== 0) continue;
@@ -157,7 +182,6 @@ export const g11Farm = {
     return false;
   },
 
-  // 배치 선택 확정: 격자 좌표·크기·유효성 플래그를 sel에 담는다.
   _setSel(r0, c0, rows, cols) {
     r0 = Math.max(0, Math.min(GRID - 1, r0));
     c0 = Math.max(0, Math.min(GRID - 1, c0));
@@ -170,7 +194,6 @@ export const g11Farm = {
     this.hasSelection = true;
   },
 
-  // 드래그: 앵커(누른 칸)→현재 칸의 사각형. 나눗셈은 줄 수(제수) 고정, 위치만 자유.
   _select(x, y) {
     const { board, cell } = this._layout();
     const cc = Math.max(0, Math.min(GRID - 1, Math.floor((x - board.x) / cell)));
@@ -195,14 +218,13 @@ export const g11Farm = {
     }
   },
 
-  // 정답 뒤 잡초 성장(피버 중 정지). 느리게 시작 → 점점 빨라짐. 40% 상한.
   _growWeeds() {
-    if (this._isFever()) return;
+    if (this._isFever()) return; // 피버 중 잡초 정지(해방 구간)
     const n = this.answered;
     let add = 0;
-    if (n <= 8) add = n % 4 === 0 ? 1 : 0;        // ~정답 4개당 1
-    else if (n <= 20) add = n % 2 === 0 ? 1 : 0;  // 점점 빨라짐
-    else add = 1;                                  // 정답마다 1
+    if (n <= 8) add = n % 4 === 0 ? 1 : 0;
+    else if (n <= 20) add = n % 2 === 0 ? 1 : 0;
+    else add = 1;
     for (let k = 0; k < add && this.weedCount < WEED_CAP; k++) this._addWeed();
   },
 
@@ -219,11 +241,15 @@ export const g11Farm = {
     return Math.round(((this.cropCount + this.weedCount) / CELLS) * 100);
   },
 
+  // 연속 수확(콤보)이 높을수록 붙는 시간(초). 1.2~2.4초.
+  _timeBonus(combo) {
+    return Math.min(2.4, 1.2 + combo * 0.1) * (this.engine.settings.timeScale || 1);
+  },
+
   _submit() {
     if (this.ending || !this.hasSelection || !this.sel) return;
     const e = this.engine;
     const sel = this.sel;
-    // ① 겹침: 제출을 막고 피드백만(오답 아님 — 위치를 다시 고르게).
     if (sel.overlap || !sel.inGrid) {
       this.blockMsg = 0.9;
       this.hasSelection = false; this.sel = null; this.anchor = null;
@@ -236,42 +262,47 @@ export const g11Farm = {
     const userAnswer = this.division ? cols : rows * cols;
     const correct = rows * cols === this.target;
     this.hasSelection = false; this.sel = null; this.anchor = null; this.buttonArmed = false; this.dragging = false;
-    // ② 넓이가 틀리면 오답(계산 오류) — 기존 오답 처리 재사용(라이프 -1·복습·1.2초 표시).
     if (!correct) {
-      e.answerWrong(p, userAnswer, { onResume: () => this._loadProblem() });
+      // 오답 = 시간 −3초(라이프 미차감). 1.2초 정답표시·복습은 기존 처리 재사용.
+      this.timeLeft = Math.max(0, this.timeLeft - WRONG_PENALTY * (e.settings.timeScale || 1));
+      this.timeFlash = 0.5;
+      e.answerWrong(p, userAnswer, { loseLife: false, onResume: () => this._loadProblem() });
       return;
     }
-    // ③ 정답: 작물 영구 배치 + 점수 + 잡초 성장 + 다음 문제.
+    // 정답: 작물 배치 + 점수 + 연속 수확 시간 보너스 + 잡초 성장 + 다음 문제.
     const quick = this.elapsed <= 4 * (e.settings.timeScale || 1) ? 20 : 0;
     const before = e.scoreManager.score;
     e.answerCorrect(p, userAnswer, 100 + e.scoreManager.combo * 5 + quick);
+    const combo = e.scoreManager.combo;
+    this.bestStreak = Math.max(this.bestStreak, combo);
+    const tb = this._timeBonus(combo);
+    this.timeLeft += tb;
+    this.timeFlash = 0.5;
     this.answered++;
+    this.harvests++;
     this._plant(sel);
-    e.particles.emit(this._layout().board.x + (sel.c0 + sel.cols / 2) * this._layout().cell,
-      this._layout().board.y + (sel.r0 + sel.rows / 2) * this._layout().cell, 'sparkle', THEME.correct, this.wasFever ? 20 : 12);
+    const { board, cell } = this._layout();
+    e.particles.emit(board.x + (sel.c0 + sel.cols / 2) * cell, board.y + (sel.r0 + sel.rows / 2) * cell, 'sparkle', THEME.correct, this.wasFever ? 20 : 12);
     this.reward = {
       text: this.division ? `${this.target} ÷ ${rows} = ${cols}` : `${rows} × ${cols} = ${this.target}`,
-      points: e.scoreManager.score - before, t: 0.6,
+      points: e.scoreManager.score - before, time: tb, t: 0.6,
     };
-    this.harvestT = 0.35;
     this._growWeeds();
-    this._loadProblem(); // 다음 문제(자리 없으면 _loadProblem 안에서 종료)
+    this._loadProblem(); // 자리 없으면 _loadProblem 안에서 '밭 정리' 후 계속
   },
 
-  _endRound() {
-    // 라운드 종료: 최종 밭 스냅샷을 짧게 보여준 뒤 결과 화면. ⚠️ 오답/라이프와 무관.
+  _timeUp() {
     if (this.ending) return;
-    this.ending = { t: 0, dur: 1.4 };
+    this.ending = { t: 0, dur: 1.6 };
     this.hasSelection = false; this.sel = null;
-    this.engine.ui.showComboText('🌾 밭이 가득 찼어!', true);
-    this.engine.ui.flash('rgba(255,220,140,0.35)', 0.1);
+    this.engine.ui.showComboText(`⏱ 시간 종료! ${this.harvests}수확`, true);
     this.engine.sound.play('fanfare');
   },
 
   _syncMode() {
     if (this.wasFever === this._isFever()) return false;
-    if (this.wasFever) this.reward = { text: 'FEVER 수확!', points: this.engine.scoreManager.score - this.feverStartScore, t: 0.7 };
-    this._loadProblem(); // 전환 시 그리던 밭은 폐기, 심은 작물·잡초는 유지
+    if (this.wasFever) this.reward = { text: 'FEVER 수확!', points: this.engine.scoreManager.score - this.feverStartScore, time: 0, t: 0.7 };
+    this._loadProblem();
     return true;
   },
 
@@ -283,8 +314,11 @@ export const g11Farm = {
     }
     this._syncMode();
     this.elapsed += dt;
-    this.harvestT = Math.max(0, this.harvestT - dt);
+    this.timeLeft -= dt;
+    if (this.timeLeft <= 0) { this.timeLeft = 0; this._timeUp(); return; }
+    if (this.timeFlash > 0) this.timeFlash = Math.max(0, this.timeFlash - dt);
     if (this.blockMsg > 0) this.blockMsg = Math.max(0, this.blockMsg - dt);
+    if (this.clearMsg > 0) this.clearMsg = Math.max(0, this.clearMsg - dt);
     if (this.reward) { this.reward.t -= dt; if (this.reward.t <= 0) this.reward = null; }
   },
 
@@ -312,7 +346,6 @@ export const g11Farm = {
       if (!event.repeat) this._submit();
       return;
     }
-    // 키보드 폴백: (0,0) 앵커에서 크기만 조절(위치 이동은 터치 드래그가 주 조작).
     const delta = { ArrowLeft: [0, -1], ArrowRight: [0, 1], ArrowUp: [-1, 0], ArrowDown: [1, 0] }[event.key];
     if (!delta) return;
     this.kRows = this.fixedRows || Math.max(1, Math.min(GRID, this.kRows + delta[0]));
@@ -327,33 +360,43 @@ export const g11Farm = {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
-    // 피버 게이지
     this.engine.fever?.renderGauge(ctx, { x: L.safe, y: L.zone.gauge - L.gu(0.35), w: L.W - L.safe * 2, h: L.gu(0.7) });
 
-    // 문제 텍스트
+    // 문제
     ctx.fillStyle = this.wasFever ? THEME.gold : THEME.text;
-    ctx.font = font(L.font(0.055));
-    ctx.fillText(this.division ? `${this.problem.a} ÷ ${this.problem.b} = ?` : `${this.target}칸의 밭!`, cx, L.zone.problem);
-    ctx.font = font(L.font(0.026), 'normal');
-    ctx.fillStyle = THEME.subtext;
-    ctx.fillText(this.division ? `${this.fixedRows}줄 고정 · 빈 자리에 놓기` : '방향 바꿔가며 빈 자리에 끼워 넣기!', cx, L.zone.playTop + L.gu(0.9));
+    ctx.font = font(L.font(0.05));
+    ctx.fillText(this.division ? `${this.problem.a} ÷ ${this.problem.b} = ?` : `${this.target}칸의 밭!`, cx, L.zone.problem - L.gu(0.2));
 
-    // 채움 % 게이지(밭이 얼마나 찼는지) — 작물(초록) + 잡초(덤불색)
-    const pct = this._fillPct();
-    const gw = L.W - L.safe * 2, gh = L.gu(0.55), gx = L.safe, gy = L.zone.playTop + L.gu(1.55);
-    roundRect(ctx, gx, gy, gw, gh, gh / 2);
+    // ⏱ 시간 바(가장 크게). 낮으면 빨강+⏱ 아이콘+맥박(§2.5 — 색만 의존 안 함).
+    const full = ROUND_SEC * (this.engine.settings.timeScale || 1);
+    const ratio = Math.max(0, Math.min(1, this.timeLeft / full));
+    const tw = L.W - L.safe * 2, th = L.gu(0.85), tx = L.safe, ty = L.zone.playTop + L.gu(0.5);
+    const low = this.timeLeft <= 10;
+    const pulse = low ? 0.7 + 0.3 * Math.sin(this.elapsed * 6) : 1;
+    roundRect(ctx, tx, ty, tw, th, th / 2);
     ctx.fillStyle = 'rgba(255,255,255,0.16)';
     ctx.fill();
-    const cropW = gw * (this.cropCount / CELLS), weedW = gw * (this.weedCount / CELLS);
-    if (cropW + weedW > 0) {
-      roundRect(ctx, gx, gy, cropW + weedW, gh, gh / 2);
-      ctx.fillStyle = '#6f7a3f';
+    if (ratio > 0) {
+      roundRect(ctx, tx, ty, tw * ratio, th, th / 2);
+      ctx.save();
+      ctx.globalAlpha = pulse;
+      ctx.fillStyle = low ? THEME.wrong : ratio > 0.4 ? THEME.correct : THEME.gold;
       ctx.fill();
-      if (cropW > 0) { roundRect(ctx, gx, gy, cropW, gh, gh / 2); ctx.fillStyle = THEME.correct; ctx.fill(); }
+      ctx.restore();
     }
     ctx.fillStyle = THEME.text;
+    ctx.font = font(L.font(0.036));
+    const flash = this.timeFlash > 0 ? ` ` : '';
+    ctx.fillText(`${low ? '⏱ ' : ''}${Math.ceil(this.timeLeft)}초${flash}`, cx, ty + th / 2);
+
+    // 채움% + 수확 수(작게)
     ctx.font = font(L.font(0.024), 'normal');
-    ctx.fillText(`밭 ${pct}% 채움`, cx, gy + gh / 2);
+    ctx.fillStyle = THEME.subtext;
+    ctx.textAlign = 'left';
+    ctx.fillText(`🌾 ${this.harvests}수확 · 밭 ${this._fillPct()}%`, L.safe, ty + th + L.gu(0.7));
+    ctx.textAlign = 'right';
+    ctx.fillText(this.fieldsCleared > 0 ? `정리 ${this.fieldsCleared}판` : '연속 수확=시간↑', L.W - L.safe, ty + th + L.gu(0.7));
+    ctx.textAlign = 'center';
 
     // 9×9 밭
     for (let r = 0; r < GRID; r++) {
@@ -369,7 +412,7 @@ export const g11Farm = {
       }
     }
 
-    // 배치 미리보기(드래그/선택) — 유효(초록)·겹침(빨강 빗금)·넓이불일치(노랑)
+    // 배치 미리보기
     const sel = this.sel;
     if (sel) {
       const px = board.x + sel.c0 * cell, py = board.y + sel.r0 * cell, pw = sel.cols * cell, ph = sel.rows * cell;
@@ -380,7 +423,6 @@ export const g11Farm = {
       roundRect(ctx, px + L.gu(0.06), py + L.gu(0.06), pw - L.gu(0.12), ph - L.gu(0.12), L.gu(0.12));
       ctx.fill();
       if (sel.overlap) {
-        // 겹침은 색만 아니라 빗금(모양)으로도 표시(§2.5)
         ctx.globalAlpha = 0.8; ctx.strokeStyle = '#fff'; ctx.lineWidth = L.gu(0.08);
         for (let d = -ph; d < pw; d += L.gu(0.6)) { ctx.beginPath(); ctx.moveTo(px + Math.max(0, d), py + Math.max(0, -d)); ctx.lineTo(px + Math.min(pw, d + ph), py + Math.min(ph, ph - d)); ctx.stroke(); }
       }
@@ -389,13 +431,13 @@ export const g11Farm = {
 
     // 하단 정보 줄
     ctx.font = font(L.font(0.027), 'normal');
-    ctx.fillStyle = THEME.text;
     let info;
-    if (this.blockMsg > 0) info = '⛔ 겹쳐서 안 돼요 — 자리를 다시 골라봐';
+    if (this.clearMsg > 0) info = '🌾 밭 정리 완료! 새 밭에서 계속';
+    else if (this.blockMsg > 0) info = '⛔ 겹쳐서 안 돼요 — 자리를 다시 골라봐';
     else if (sel && !sel.correctArea) info = `${sel.rows}줄 · ${sel.cols}칸 = ${sel.rows * sel.cols}칸 (목표 ${this.target})`;
     else if (this.hasSelection) info = `${sel.rows}줄 · 한 줄 ${sel.cols}칸 — [수확!]`;
-    else info = '밭 위를 드래그해 배열 그리기';
-    ctx.fillStyle = this.blockMsg > 0 ? THEME.wrong : THEME.text;
+    else info = this.division ? `${this.fixedRows}줄 고정 · 빈 자리에 끼워 넣기` : '방향 바꿔가며 빈 자리에 끼워 넣기!';
+    ctx.fillStyle = this.blockMsg > 0 ? THEME.wrong : this.clearMsg > 0 ? THEME.gold : THEME.text;
     ctx.fillText(info, cx, board.y + board.h + L.gu(0.85));
 
     // 수확 버튼
@@ -407,29 +449,33 @@ export const g11Farm = {
     ctx.font = font(L.font(0.038));
     ctx.fillText('수확!', button.x + button.w / 2, button.y + button.h / 2);
 
-    // 좌하단: 보상 식 / 채움 안내
+    // 좌하단: 보상(식·점수·+시간)
     ctx.font = font(L.font(0.026));
     if (this.reward) {
       ctx.fillStyle = THEME.gold;
-      ctx.fillText(this.reward.text, L.W / 4, button.y + button.h / 2 - L.gu(0.35));
-      ctx.fillText(`+${this.reward.points}`, L.W / 4, button.y + button.h / 2 + L.gu(0.45));
+      ctx.fillText(this.reward.text, L.W / 4, button.y + button.h / 2 - L.gu(0.4));
+      const extra = this.reward.time > 0 ? `  +${this.reward.time.toFixed(1)}초` : '';
+      ctx.fillText(`+${this.reward.points}${extra}`, L.W / 4, button.y + button.h / 2 + L.gu(0.45));
     } else {
       ctx.fillStyle = THEME.subtext;
-      ctx.fillText(`🌾 수확 ${this.answered}개`, L.W / 4, button.y + button.h / 2 - L.gu(0.35));
-      ctx.fillText(`밭 ${pct}% 채움`, L.W / 4, button.y + button.h / 2 + L.gu(0.45));
+      ctx.fillText(`연속 ${this.engine.scoreManager.combo}`, L.W / 4, button.y + button.h / 2 - L.gu(0.4));
+      ctx.fillText(`최고연속 ${this.bestStreak}`, L.W / 4, button.y + button.h / 2 + L.gu(0.45));
     }
 
-    // 종료 스냅샷 배너
+    // 시간 종료 배너
     if (this.ending) {
       const prog = this.ending.t / this.ending.dur;
       ctx.save();
-      ctx.globalAlpha = prog < 0.8 ? 1 : Math.max(0, 1 - (prog - 0.8) / 0.2);
+      ctx.globalAlpha = prog < 0.85 ? 1 : Math.max(0, 1 - (prog - 0.85) / 0.15);
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillStyle = THEME.gold;
-      ctx.font = font(L.font(0.06));
+      ctx.font = font(L.font(0.058));
       ctx.lineWidth = L.gu(0.22); ctx.strokeStyle = 'rgba(0,0,0,0.5)';
-      ctx.strokeText(`🌾 ${pct}% 수확 완료!`, cx, L.y(0.5));
-      ctx.fillText(`🌾 ${pct}% 수확 완료!`, cx, L.y(0.5));
+      ctx.strokeText(`⏱ 시간 종료!`, cx, L.y(0.46));
+      ctx.fillText(`⏱ 시간 종료!`, cx, L.y(0.46));
+      ctx.font = font(L.font(0.038), 'normal');
+      ctx.fillStyle = THEME.text;
+      ctx.fillText(`총 ${this.harvests}수확 · 정리 ${this.fieldsCleared}판 · 최고연속 ${this.bestStreak}`, cx, L.y(0.46) + L.gu(2.4));
       ctx.restore();
     }
   },
@@ -447,7 +493,6 @@ export const g11Farm = {
 };
 
 // ── 모듈 로컬 그림(core 미수정) ────────────────────────────
-// 작물: 부드러운 새싹 두 잎.
 function drawCrop(ctx, x, y, s) {
   ctx.save();
   ctx.fillStyle = '#bff0c4';
@@ -460,7 +505,6 @@ function drawCrop(ctx, x, y, s) {
   ctx.restore();
 }
 
-// 잡초(가시덤불): 색만이 아니라 뾰족한 모양으로 구분(§2.5). 어둡게/반전 없음.
 function drawWeed(ctx, x, y, s) {
   ctx.save();
   ctx.strokeStyle = '#3f4a1f'; ctx.lineWidth = s * 0.06; ctx.lineCap = 'round';
@@ -471,7 +515,7 @@ function drawWeed(ctx, x, y, s) {
     ctx.lineTo(x + Math.cos(a) * s * 0.32, y + Math.sin(a) * s * 0.32);
     ctx.stroke();
   }
-  ctx.fillStyle = '#8a3b3b'; // 작은 열매(붉은 점) — 대비
+  ctx.fillStyle = '#8a3b3b';
   ctx.beginPath(); ctx.arc(x, y, s * 0.09, 0, Math.PI * 2); ctx.fill();
   ctx.restore();
 }
