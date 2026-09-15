@@ -42,6 +42,7 @@
 
 import { L } from '../core/layout.js';
 import { THEME, font } from '../core/ui.js';
+import { ScoreManager } from '../core/scoreManager.js'; // 개인 최고점 조회(getHighScores, 읽기 전용 — core 미수정)
 import { drawWorldHeader } from '../art/arcadeWorld.js';
 import { drawRewardText } from '../art/toyArt.js';
 
@@ -75,7 +76,7 @@ export const g03Race = {
   comboMilestones: { 5: 'FAST!', 10: 'TURBO!', 20: 'NITRO!', 30: 'CHAMPION!' },
 
   tutorial: {
-    text: '좌우로 운전해서 정답 차선 게이트를 통과해! 내 최고기록 유령과 겨뤄보자!',
+    text: '좌우로 운전해서 정답 차선 게이트를 통과해! 30게이트 3구간, 내 최고점을 넘어보자!',
     draw(ctx) {
       // 카드 영역(엔진이 translate(0,260)) 안에 3차선 도로 + 게이트 + 내 차 미리보기.
       const cx = L.W / 2;
@@ -141,6 +142,13 @@ export const g03Race = {
     this.problem = null;
     this.gate = null; // {values,correctLane,p,sec,locked,judged,judgeLane}
     this.gatesPassed = 0;
+
+    // A(개인 최고점 목표 바): 이전 판 최고점. 기록이 없으면(첫 판) null → 바 자체를 숨긴다.
+    //   ⚠️ 실시간 라이벌이 아니라 '내 최고점까지'의 목표 표시(시간별 득점 재현이 불가하므로).
+    this.bestScore = ScoreManager.getHighScores(this.id)[0]?.score ?? null;
+    this.beatBest = false; // 이번 판에 최고점 돌파 시 1회 연출
+    // C(3구간 랩): 30게이트를 10씩 3구간으로 '표시'만 한다. 체크포인트에서 멈추지 않는다.
+    this.checkpoint = null; // {t,dur,lap} — 구간 통과 순간의 비차단 연출
 
     // 입력 상태
     this.touchStartX = null;
@@ -424,6 +432,7 @@ export const g03Race = {
     if (this.crashT > 0) this.crashT = Math.max(0, this.crashT - dt);
     if (this.carZoom > 0) this.carZoom = Math.max(0, this.carZoom - dt);
     if (this.feverZoomT > 0) this.feverZoomT = Math.max(0, this.feverZoomT - dt);
+    if (this.checkpoint) { this.checkpoint.t += dt; if (this.checkpoint.t >= this.checkpoint.dur) this.checkpoint = null; }
     // 충돌 범퍼 튕김(위로 살짝 튀었다 복귀 — 스핀/파손 아님)
     this.carBounce = this.crashT > 0 ? Math.sin((1 - this.crashT / CRASH_DUR) * Math.PI) * L.gu(0.5) : 0;
     for (let i = this.floats.length - 1; i >= 0; i--) {
@@ -445,6 +454,7 @@ export const g03Race = {
     const correct = lane === g.correctLane;
 
     this.gatesPassed += 1;
+    this._lapCheck(); // C: 10·20게이트 구간 통과 시 비차단 체크포인트(멈춤·숫자 가림 없음)
     const last = this.gatesPassed >= TRACK;
     const cp = this._carPos();
 
@@ -464,6 +474,7 @@ export const g03Race = {
       e.answerCorrect(this.problem, chosen, pts); // 점수배수·게이지·정답음·콤보문구·위기밝힘 자동
       const shown = pts * (e.fever && e.fever.active ? e.fever.scoreMultiplier : 1);
       this._boost(shown, cp);
+      this._checkBest(cp); // A: 이번 통과로 개인 최고점을 넘었으면 1회 축하
       if (nearMiss) e.reportNearMiss(cp.x, cp.y - L.gu(1.4));
       this.gate = null;
       if (last) return this._finish();
@@ -498,6 +509,7 @@ export const g03Race = {
       e.answerCorrect(prob, chosen, pts); // 점수배수·게이지·정답음·콤보문구 자동(무적)
       const shown = Math.round(pts * (fv.active ? fv.scoreMultiplier : 1));
       this._feverBoost(shown, cp, boost);
+      this._checkBest(cp); // A: 피버 통과로도 최고점 돌파 감지
     } else {
       // 아닌 차선 통과 → 무해(무적). 연속 BOOST만 초기화. 세션엔 기록(복습 미등록).
       this.feverChain = 0;
@@ -557,6 +569,30 @@ export const g03Race = {
     e.particles.emit(cp.x, cp.y - L.gu(0.3), 'pop', '#c9d2e0', 14); // 회색 연기 튀김
     e.ui.shake(13, 0.32);
     this._haptic(20);
+  },
+
+  // C: 구간(랩) 통과 — 10·20게이트에서 짧은 비차단 연출. 진행·조향·다음 게이트는 그대로(즉시 다음).
+  //   연출은 하단 랩 바 위 문구 + 파티클뿐 — 도로 중앙 게이트 숫자를 가리지 않는다.
+  _lapCheck() {
+    const per = TRACK / 3; // 구간당 게이트 수(10)
+    if (this.gatesPassed % per === 0 && this.gatesPassed < TRACK) {
+      const lap = this.gatesPassed / per; // 방금 끝낸 구간(1 또는 2)
+      this.checkpoint = { t: 0, dur: 0.7, lap };
+      this.engine.particles.emit(L.W / 2, this._carLineY() - L.gu(2.2), 'sparkle', THEME.gold, 18);
+      this.engine.sound.play('pop');
+      this._haptic(12);
+    }
+  },
+
+  // A: 현재 점수가 개인 최고점을 막 넘은 순간 1회만 축하(기록 없으면 아무것도 안 함).
+  _checkBest(cp) {
+    if (this.bestScore == null || this.beatBest) return;
+    if (this.engine.scoreManager.score > this.bestScore) {
+      this.beatBest = true;
+      this.engine.particles.emit(cp.x, cp.y - L.gu(1), 'sparkle', THEME.gold, 22);
+      this.engine.ui.showComboText('🏆 최고점 돌파!', false);
+      this.engine.sound.play('pop');
+    }
   },
 
   _finish() {
@@ -781,14 +817,74 @@ export const g03Race = {
     ctx.restore();
   },
 
+  // 하단 HUD(도로 밖): C 3구간 랩 바(좌) + A 개인 최고점 목표 바(우). 게이트 숫자를 가리지 않는다.
   _drawHudLabels(ctx) {
+    const per = TRACK / 3; // 구간당 10게이트
+    const lap = Math.min(3, Math.floor(this.gatesPassed / per) + 1);
+    const y = this._carLineY() + L.gu(2.2);
     ctx.save();
     ctx.textBaseline = 'middle';
-    // 진행 라벨(좌하단 근처, 도로 밖)
+
+    // ── C: 3구간 랩 진행(세그먼트 3칸) — 좌하단 ──
+    const segW = L.gu(2.3), segH = L.gu(0.5), gap = L.gu(0.35);
+    for (let i = 0; i < 3; i++) {
+      const sx = L.safe + i * (segW + gap);
+      const done = clamp((this.gatesPassed - i * per) / per, 0, 1);
+      roundRectPath(ctx, sx, y, segW, segH, segH / 2);
+      ctx.fillStyle = 'rgba(255,255,255,0.18)';
+      ctx.fill();
+      if (done > 0) {
+        roundRectPath(ctx, sx, y, segW * done, segH, segH / 2);
+        ctx.fillStyle = done >= 1 ? THEME.gold : THEME.accent;
+        ctx.fill();
+        // 방금 통과한 구간은 체크포인트 동안 잠깐 밝게 번쩍(색만 의존 금지 아님 — 진행 표시 강조).
+        if (this.checkpoint && this.checkpoint.lap === i + 1) {
+          const f = 1 - this.checkpoint.t / this.checkpoint.dur;
+          roundRectPath(ctx, sx, y, segW * done, segH, segH / 2);
+          ctx.fillStyle = `rgba(255,255,255,${0.55 * f})`;
+          ctx.fill();
+        }
+      }
+    }
     ctx.fillStyle = THEME.subtext;
-    ctx.font = font(L.font(0.03), 'normal');
+    ctx.font = font(L.font(0.026), 'normal');
     ctx.textAlign = 'left';
-    drawRewardText(ctx, `🏁 ${this.gatesPassed} / ${TRACK}`, L.safe, this._carLineY() + L.gu(2.6));
+    drawRewardText(ctx, `🏁 ${this.gatesPassed}/${TRACK} · 구간 ${lap}/3`, L.safe, y + segH + L.gu(0.7));
+
+    // 체크포인트 통과 문구(랩 바 위, 짧게 떠오름 — 도로 중앙 게이트를 가리지 않는 하단 위치).
+    if (this.checkpoint) {
+      const p = this.checkpoint.t / this.checkpoint.dur;
+      ctx.globalAlpha = Math.max(0, 1 - p);
+      ctx.fillStyle = THEME.gold;
+      ctx.font = font(L.font(0.036));
+      ctx.textAlign = 'left';
+      drawRewardText(ctx, `🚩 ${this.checkpoint.lap}구간 통과!`, L.safe, y - L.gu(1.1) - p * L.gu(0.6));
+      ctx.globalAlpha = 1;
+    }
+
+    // ── A: 개인 최고점 목표 바 — 우하단. 기록이 없으면(첫 판) 숨긴다. ──
+    if (this.bestScore != null && this.bestScore > 0) {
+      const best = this.bestScore;
+      const cur = this.engine.scoreManager.score;
+      const ratio = clamp(cur / best, 0, 1);
+      const barW = L.w(0.4), barH = L.gu(0.5);
+      const bx = L.W - L.safe - barW;
+      ctx.textAlign = 'right';
+      ctx.fillStyle = this.beatBest ? THEME.gold : THEME.subtext;
+      ctx.font = font(L.font(0.026), 'normal');
+      drawRewardText(ctx, `🏆 내 최고 ${best}`, L.W - L.safe, y - L.gu(0.8));
+      roundRectPath(ctx, bx, y, barW, barH, barH / 2);
+      ctx.fillStyle = 'rgba(255,255,255,0.18)';
+      ctx.fill();
+      if (ratio > 0) {
+        roundRectPath(ctx, bx, y, barW * ratio, barH, barH / 2);
+        ctx.fillStyle = this.beatBest ? THEME.gold : THEME.correct;
+        ctx.fill();
+      }
+      ctx.textAlign = 'right';
+      ctx.fillStyle = this.beatBest ? THEME.gold : THEME.subtext;
+      drawRewardText(ctx, this.beatBest ? '최고점 돌파! 🎉' : `최고점까지 ${best - cur}점`, L.W - L.safe, y + barH + L.gu(0.7));
+    }
     ctx.restore();
   },
 
