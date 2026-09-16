@@ -182,6 +182,22 @@ export const g11Farm = {
     return false;
   },
 
+  // 풍년 타임 전용: 클릭한 칸(cr,cc) 근처에서 목표에 맞는 빈 직사각형을 하나 찾는다(없으면 밭 어디든 첫 자리).
+  //   → 아무 곳이나 탭해도 알아서 잘 수확되게(마음껏 수확 해방). 클릭 칸을 포함하는 배치를 최우선.
+  _autoFit(cr, cc) {
+    let best = null, bestScore = Infinity;
+    for (const [rr, cols] of this._targetPairs()) {
+      for (let r0 = 0; r0 + rr <= GRID; r0++) for (let c0 = 0; c0 + cols <= GRID; c0++) {
+        if (!this._rectEmpty(r0, c0, rr, cols)) continue;
+        const contains = cr >= r0 && cr < r0 + rr && cc >= c0 && cc < c0 + cols;
+        const dist = Math.abs(r0 + rr / 2 - 0.5 - cr) + Math.abs(c0 + cols / 2 - 0.5 - cc);
+        const score = dist - (contains ? 1000 : 0);
+        if (score < bestScore) { bestScore = score; best = { r0, c0, rows: rr, cols }; }
+      }
+    }
+    return best;
+  },
+
   _setSel(r0, c0, rows, cols) {
     r0 = Math.max(0, Math.min(GRID - 1, r0));
     c0 = Math.max(0, Math.min(GRID - 1, c0));
@@ -348,7 +364,17 @@ export const g11Farm = {
 
   onTouch(x, y, phase) {
     if (this.ending || this._syncMode()) return;
-    const { board, button } = this._layout();
+    const { board, button, cell } = this._layout();
+    // 풍년 타임: 밭 아무 곳이나 탭하면 맞는 배열을 자동으로 찾아 즉시 수확(드래그·버튼 불필요).
+    if (this._isFever()) {
+      if (phase === 'start' && hit(board, x, y)) {
+        const cc = Math.max(0, Math.min(GRID - 1, Math.floor((x - board.x) / cell)));
+        const cr = Math.max(0, Math.min(GRID - 1, Math.floor((y - board.y) / cell)));
+        const fit = this._autoFit(cr, cc);
+        if (fit) { this._setSel(fit.r0, fit.c0, fit.rows, fit.cols); this._submit(); }
+      }
+      return;
+    }
     if (phase === 'start') {
       this.buttonArmed = this.hasSelection && hit(button, x, y);
       this.dragging = hit(board, x, y);
@@ -366,6 +392,15 @@ export const g11Farm = {
 
   onKey(event) {
     if (this.ending || this._syncMode()) return;
+    // 풍년 타임: 아무 키(Enter/Space)로도 자동 수확.
+    if (this._isFever()) {
+      if ((event.key === 'Enter' || event.key === ' ') && !event.repeat) {
+        const mid = Math.floor(GRID / 2);
+        const fit = this._autoFit(mid, mid);
+        if (fit) { this._setSel(fit.r0, fit.c0, fit.rows, fit.cols); this._submit(); }
+      }
+      return;
+    }
     if (event.key === 'Enter' || event.key === ' ') {
       if (!event.repeat) this._submit();
       return;
@@ -471,7 +506,8 @@ export const g11Farm = {
     // 하단 정보 줄
     ctx.font = font(L.font(0.027), 'normal');
     let info;
-    if (this.clearMsg > 0) info = '🌾 밭 정리 완료! 새 밭에서 계속';
+    if (this._isFever()) info = '🌻 밭 아무 곳이나 탭하면 바로 수확!';
+    else if (this.clearMsg > 0) info = '🌾 밭 정리 완료! 새 밭에서 계속';
     else if (this.blockMsg > 0) info = '⛔ 겹쳐서 안 돼요 — 자리를 다시 골라봐';
     else if (sel && !sel.correctArea) info = `${sel.rows}줄 · ${sel.cols}칸 = ${sel.rows * sel.cols}칸 (목표 ${this.target})`;
     else if (this.hasSelection) info = `${sel.rows}줄 · 한 줄 ${sel.cols}칸 — [수확!]`;
@@ -479,14 +515,15 @@ export const g11Farm = {
     ctx.fillStyle = this.blockMsg > 0 ? THEME.wrong : this.clearMsg > 0 ? THEME.gold : THEME.text;
     ctx.fillText(info, cx, board.y + board.h + L.gu(0.85));
 
-    // 수확 버튼
-    const canHarvest = this.hasSelection && sel && !sel.overlap && sel.inGrid && sel.correctArea;
+    // 수확 버튼 (풍년 타임엔 탭만으로 수확되므로 안내 라벨로 바뀜)
+    const fever2 = this._isFever();
+    const canHarvest = fever2 || (this.hasSelection && sel && !sel.overlap && sel.inGrid && sel.correctArea);
     roundRect(ctx, button.x, button.y, button.w, button.h, L.gu(0.35));
     ctx.fillStyle = canHarvest ? THEME.accent : THEME.disabled;
     ctx.fill();
     ctx.fillStyle = THEME.text;
     ctx.font = font(L.font(0.038));
-    ctx.fillText('수확!', button.x + button.w / 2, button.y + button.h / 2);
+    ctx.fillText(fever2 ? '🌻 탭 수확!' : '수확!', button.x + button.w / 2, button.y + button.h / 2);
 
     // 좌하단: 보상(식·점수·+시간)
     ctx.font = font(L.font(0.026));
