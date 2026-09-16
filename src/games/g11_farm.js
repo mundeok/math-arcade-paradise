@@ -304,9 +304,27 @@ export const g11Farm = {
 
   _syncMode() {
     if (this.wasFever === this._isFever()) return false;
-    if (this.wasFever) this.reward = { text: 'FEVER 수확!', points: this.engine.scoreManager.score - this.feverStartScore, time: 0, t: 0.7 };
+    if (this.wasFever) {
+      // 풍년 타임 종료: 그동안 번 점수를 배너로.
+      this.reward = { text: 'FEVER 수확!', points: this.engine.scoreManager.score - this.feverStartScore, time: 0, t: 0.7 };
+    } else {
+      // 풍년 타임 진입: 시간 정지(update)·점수 배수(엔진)에 더해, 기존 잡초가 시들어 사라지고 금빛 연출.
+      this._witherWeeds();
+      this.engine.ui.showComboText('🌻 풍년 타임! 시간 정지', true);
+      this.engine.ui.flash('rgba(255,220,120,0.4)', 0.1);
+      this.engine.sound.play('fanfare');
+    }
     this._loadProblem();
     return true;
+  },
+
+  // 풍년 타임 진입 시 기존 잡초를 모두 없앤다(밭이 넓어지는 해방 연출). 작물은 유지.
+  _witherWeeds() {
+    const { board } = this._layout();
+    const w = this.weedCount;
+    for (let r = 0; r < GRID; r++) for (let c = 0; c < GRID; c++) if (this.grid[r][c] === WEED) this.grid[r][c] = EMPTY;
+    this.weedCount = 0;
+    if (w > 0) this.engine.particles.emit(L.W / 2, board.y + board.h / 2, 'sparkle', THEME.gold, Math.min(30, 10 + w * 2));
   },
 
   update(dt) {
@@ -317,8 +335,11 @@ export const g11Farm = {
     }
     this._syncMode();
     this.elapsed += dt;
-    this.timeLeft -= dt;
-    if (this.timeLeft <= 0) { this.timeLeft = 0; this._timeUp(); return; }
+    // ⚠️ 피버(풍년 타임)=시간 해방: 지속 동안 타이머가 멈춘다(반사신경 게임의 무적에 해당).
+    if (!this._isFever()) {
+      this.timeLeft -= dt;
+      if (this.timeLeft <= 0) { this.timeLeft = 0; this._timeUp(); return; }
+    }
     if (this.timeFlash > 0) this.timeFlash = Math.max(0, this.timeFlash - dt);
     if (this.blockMsg > 0) this.blockMsg = Math.max(0, this.blockMsg - dt);
     if (this.clearMsg > 0) this.clearMsg = Math.max(0, this.clearMsg - dt);
@@ -374,12 +395,18 @@ export const g11Farm = {
     const full = ROUND_SEC * (this.engine.settings.timeScale || 1);
     const ratio = Math.max(0, Math.min(1, this.timeLeft / full));
     const tw = L.W - L.safe * 2, th = L.gu(0.95), tx = L.safe, ty = L.zone.playTop + L.gu(0.45);
-    const low = this.timeLeft <= 10;
+    const fever = this._isFever();
+    const low = !fever && this.timeLeft <= 10;
     const pulse = low ? 0.7 + 0.3 * Math.sin(this.elapsed * 6) : 1;
     roundRect(ctx, tx, ty, tw, th, th / 2);
     ctx.fillStyle = 'rgba(255,255,255,0.16)';
     ctx.fill();
-    if (ratio > 0) {
+    if (fever) {
+      // 풍년 타임: 시간 정지 → 바를 금빛으로 가득 채워 '멈춤'을 알린다.
+      roundRect(ctx, tx, ty, tw, th, th / 2);
+      ctx.fillStyle = THEME.gold;
+      ctx.fill();
+    } else if (ratio > 0) {
       roundRect(ctx, tx, ty, Math.max(th * 1.6, tw * ratio), th, th / 2); // 저값에서도 '바'로 읽히게 최소 폭
       ctx.save();
       ctx.globalAlpha = pulse;
@@ -387,10 +414,9 @@ export const g11Farm = {
       ctx.fill();
       ctx.restore();
     }
-    ctx.fillStyle = THEME.text;
+    ctx.fillStyle = fever ? '#5a4410' : THEME.text; // 금빛 바 위엔 어두운 글자(대비)
     ctx.font = font(L.font(0.036));
-    const flash = this.timeFlash > 0 ? ` ` : '';
-    ctx.fillText(`${low ? '⏱ ' : ''}${Math.ceil(this.timeLeft)}초${flash}`, cx, ty + th / 2);
+    ctx.fillText(fever ? '🌻 풍년 타임! 시간 정지' : `${low ? '⏱ ' : ''}${Math.ceil(this.timeLeft)}초`, cx, ty + th / 2);
 
     // 채움% + 수확 수(작게)
     ctx.font = font(L.font(0.024), 'normal');
@@ -413,6 +439,16 @@ export const g11Farm = {
         if (v === CROP) drawCrop(ctx, bx + bs / 2, by + bs / 2, bs);
         else if (v === WEED) drawWeed(ctx, bx + bs / 2, by + bs / 2, bs);
       }
+    }
+
+    // 풍년 타임: 밭 위에 금빛 빛번짐(밝게만 — §2.5, lighter 합성)
+    if (this._isFever()) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.fillStyle = `rgba(255,205,80,${0.1 + 0.05 * (0.5 + 0.5 * Math.sin(this.elapsed * 4))})`;
+      roundRect(ctx, board.x, board.y, board.w, board.h, L.gu(0.3));
+      ctx.fill();
+      ctx.restore();
     }
 
     // 배치 미리보기
