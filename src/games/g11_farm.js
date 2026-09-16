@@ -17,7 +17,7 @@ const WEED_CAP = Math.floor(CELLS * 0.4); // 잡초 상한(완전 봉쇄 방지)
 const MAX_TARGET = 12; // 한 번에 놓는 배열 크기 상한(밭을 여러 번에 걸쳐 채우도록). 3×4·2×6 등 방향전환 살아있음.
 const ROUND_SEC = 60;  // 기본 제한시간(교사 timeScale 반영)
 const WRONG_PENALTY = 3; // 오답 시 시간 차감(초)
-const CLEAR_BONUS_SEC = 4; // '밭 정리' 보너스 시간(초)
+const CLEAR_BONUS_SEC = 7; // '밭 정리' 보너스 시간(초) — 애써 채운 밭을 비우는 보상이므로 넉넉히
 const CLEAR_BONUS_PTS = 200; // '밭 정리' 보너스 점수
 
 export const g11Farm = {
@@ -241,9 +241,12 @@ export const g11Farm = {
     return Math.round(((this.cropCount + this.weedCount) / CELLS) * 100);
   },
 
-  // 연속 수확(콤보)이 높을수록 붙는 시간(초). 1.2~2.4초.
+  // 연속 수확이 붙여주는 시간(초). ⚠️ 이 게임의 수확 한 번은 '계산+빈자리 탐색+배치'라 ~4~7초가 걸리므로,
+  //   보너스가 그보다 커야 '잘하면 더 오래' 루프가 실제로 성립한다. 콤보와 목표 크기(큰 배열=더 오래 걸림)로
+  //   ~3.3~5.5초. 능숙한 연속은 시간을 벌고, 헤매면 자연 종료된다.
   _timeBonus(combo) {
-    return Math.min(2.4, 1.2 + combo * 0.1) * (this.engine.settings.timeScale || 1);
+    const sec = Math.min(5.5, 3 + combo * 0.2 + (this.target - 6) * 0.15);
+    return sec * (this.engine.settings.timeScale || 1);
   },
 
   _submit() {
@@ -370,14 +373,14 @@ export const g11Farm = {
     // ⏱ 시간 바(가장 크게). 낮으면 빨강+⏱ 아이콘+맥박(§2.5 — 색만 의존 안 함).
     const full = ROUND_SEC * (this.engine.settings.timeScale || 1);
     const ratio = Math.max(0, Math.min(1, this.timeLeft / full));
-    const tw = L.W - L.safe * 2, th = L.gu(0.85), tx = L.safe, ty = L.zone.playTop + L.gu(0.5);
+    const tw = L.W - L.safe * 2, th = L.gu(0.95), tx = L.safe, ty = L.zone.playTop + L.gu(0.45);
     const low = this.timeLeft <= 10;
     const pulse = low ? 0.7 + 0.3 * Math.sin(this.elapsed * 6) : 1;
     roundRect(ctx, tx, ty, tw, th, th / 2);
     ctx.fillStyle = 'rgba(255,255,255,0.16)';
     ctx.fill();
     if (ratio > 0) {
-      roundRect(ctx, tx, ty, tw * ratio, th, th / 2);
+      roundRect(ctx, tx, ty, Math.max(th * 1.6, tw * ratio), th, th / 2); // 저값에서도 '바'로 읽히게 최소 폭
       ctx.save();
       ctx.globalAlpha = pulse;
       ctx.fillStyle = low ? THEME.wrong : ratio > 0.4 ? THEME.correct : THEME.gold;
