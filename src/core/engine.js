@@ -283,7 +283,7 @@ export class Engine {
     // 정답음: 콤보에 따라 반음 상승(재미 표준). 피버 중엔 한 옥타브↑ + 상승 폭 2배(재설계).
     this.sound.playCorrect(res.combo, { boost: feverActive, wide: feverActive });
     this._playComboMilestone(res.combo, res.milestone);
-    if (res.recovered) this.ui.showComboText('LIFE +1', false);
+    if (res.recovered && !this.game?.getSurvivalHUD) this.ui.showComboText('LIFE +1', false);
     // 위기 회복 피드백: 라이프1에서 정답 → 테두리 잠깐 밝힘("버텼다")
     if (this.scoreManager.lives <= 1) this.ui.crisisHold();
 
@@ -567,6 +567,7 @@ export class Engine {
           score: this.scoreManager.score,
           combo: this.scoreManager.combo,
           lives: this.scoreManager.lives,
+          survival: this.game?.getSurvivalHUD?.() ?? null,
           showPause: this.state === STATE.PLAYING,
         });
         this.ui.renderComboOverlays(ctx);

@@ -226,7 +226,7 @@ export class UI {
   }
 
   // ── HUD (상단 고정) : 점수 | 콤보 | 라이프 ❤️ | ⏸ ──
-  drawHUD(ctx, { score, combo, lives, showPause = true }) {
+  drawHUD(ctx, { score, combo, lives, showPause = true, survival = null }) {
     const barH = 96;
     ctx.save();
     // 반투명 상단 바
@@ -248,13 +248,32 @@ export class UI {
     // 라이프 하트 (⏸ 버튼 왼쪽). 왼쪽 끝을 먼저 계산해 콤보가 들어갈 빈 구간을 잡는다.
     const heartSize = 46;
     const heartGap = 10;
-    const n = Math.max(lives, 0);
+    const n = survival ? 0 : Math.max(lives, 0);
     const firstHeartCx = this.pauseRect.x - 20 - heartSize; // 가장 오른쪽 하트 중심
-    const heartsLeft = n > 0 ? firstHeartCx - (n - 1) * (heartSize + heartGap) - heartSize / 2 : this.pauseRect.x - 20;
+    const resourceW = L.gu(4.7);
+    const resourceRight = this.pauseRect.x - L.gu(0.5);
+    const heartsLeft = survival ? resourceRight - resourceW : n > 0 ? firstHeartCx - (n - 1) * (heartSize + heartGap) - heartSize / 2 : this.pauseRect.x - 20;
     let hx = firstHeartCx;
     for (let i = 0; i < n; i++) {
       drawHeart(ctx, hx, cy, heartSize, THEME.life);
       hx -= heartSize + heartGap;
+    }
+    // 생존 자원을 선택적으로 표시한다. 자원 증감·종료 판단은 해당 게임의 책임이다.
+    if (survival) {
+      const ratio = Math.max(0, Math.min(1, survival.value / Math.max(1, survival.max)));
+      ctx.textAlign = 'center';
+      ctx.fillStyle = survival.color || THEME.correct;
+      ctx.font = font(L.gu(0.72));
+      ctx.fillText(`${survival.label} ${Math.ceil(survival.value)}`, heartsLeft + resourceW / 2, cy - L.gu(0.65), resourceW);
+      roundRect(ctx, heartsLeft, cy - L.gu(0.12), resourceW, L.gu(0.38), L.gu(0.18));
+      ctx.fillStyle = THEME.panel; ctx.fill();
+      if (ratio > 0) {
+        roundRect(ctx, heartsLeft, cy - L.gu(0.12), resourceW * ratio, L.gu(0.38), L.gu(0.18));
+        ctx.fillStyle = survival.color || THEME.correct; ctx.fill();
+      }
+      ctx.font = font(L.gu(0.55));
+      ctx.fillStyle = THEME.text;
+      ctx.fillText(survival.note || '', heartsLeft + resourceW / 2, cy + L.gu(0.64), resourceW);
     }
 
     // 콤보: 점수 오른쪽 ~ 하트 왼쪽 '빈 구간' 중앙에 배치(겹침 방지 — 중앙 고정 폐기).
