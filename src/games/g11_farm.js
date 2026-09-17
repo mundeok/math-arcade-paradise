@@ -94,8 +94,12 @@ export const g11Farm = {
   },
 
   _layout() {
-    const y = L.zone.playTop + L.gu(2.5);
-    const size = Math.min(L.W - L.safe * 2, L.zone.floor - L.minTouch - L.gu(2) - y);
+    // 시간은 상단 HUD가 표시(중앙 큰 바 폐지) → 상태 줄 아래 남는 세로 공간에 밭을 중앙 정렬.
+    const top = L.zone.playTop + L.gu(1.4);          // 상태 줄 아래
+    const bottom = L.zone.floor - L.minTouch - L.gu(1.6); // 하단 정보 줄 + 버튼 위
+    const avail = bottom - top;
+    const size = Math.min(L.W - L.safe * 2, avail);
+    const y = top + Math.max(0, (avail - size) / 2); // 세로 중앙
     return {
       board: { x: (L.W - size) / 2, y, w: size, h: size },
       button: { x: L.W / 2, y: L.zone.floor - L.minTouch, w: L.W / 2 - L.safe, h: L.minTouch },
@@ -105,6 +109,21 @@ export const g11Farm = {
 
   _isFever() {
     return !!(this.engine.fever?.active && this.engine.fever.type === 'easy');
+  },
+
+  // 시간 러너라 라이프(하트)가 의미 없다 → core의 선택적 생존 HUD로 상단 하트 대신 '시간'을 표시.
+  //   (core 미수정: 엔진이 game.getSurvivalHUD()가 있으면 하트 대신 이 자원 바를 그린다.)
+  getSurvivalHUD() {
+    const full = ROUND_SEC * (this.engine.settings.timeScale || 1);
+    const fever = this._isFever();
+    const low = !fever && this.timeLeft <= 10;
+    return {
+      label: '시간',
+      value: Math.max(0, this.timeLeft),
+      max: full,
+      color: fever ? THEME.gold : low ? '#ffab91' : '#80e8cb',
+      note: fever ? '정지' : low ? '서둘러!' : '연속=시간↑',
+    };
   },
 
   _loadProblem() {
@@ -426,40 +445,32 @@ export const g11Farm = {
     ctx.font = font(L.font(0.05));
     ctx.fillText(this.division ? `${this.problem.a} ÷ ${this.problem.b} = ?` : `${this.target}칸의 밭!`, cx, L.zone.problem - L.gu(0.2));
 
-    // ⏱ 시간 바(가장 크게). 낮으면 빨강+⏱ 아이콘+맥박(§2.5 — 색만 의존 안 함).
-    const full = ROUND_SEC * (this.engine.settings.timeScale || 1);
-    const ratio = Math.max(0, Math.min(1, this.timeLeft / full));
-    const tw = L.W - L.safe * 2, th = L.gu(0.95), tx = L.safe, ty = L.zone.playTop + L.gu(0.45);
+    // 상단 상태 줄: 시간은 상단 HUD(하트 자리)가 표시하므로 중앙 큰 바는 폐지.
+    //   여기선 수확 진행 + 특수 상태(풍년 타임/저시간 경고)만 작게 표시(§2.5 — 색만 의존 안 함).
     const fever = this._isFever();
     const low = !fever && this.timeLeft <= 10;
-    const pulse = low ? 0.7 + 0.3 * Math.sin(this.elapsed * 6) : 1;
-    roundRect(ctx, tx, ty, tw, th, th / 2);
-    ctx.fillStyle = 'rgba(255,255,255,0.16)';
-    ctx.fill();
-    if (fever) {
-      // 풍년 타임: 시간 정지 → 바를 금빛으로 가득 채워 '멈춤'을 알린다.
-      roundRect(ctx, tx, ty, tw, th, th / 2);
-      ctx.fillStyle = THEME.gold;
-      ctx.fill();
-    } else if (ratio > 0) {
-      roundRect(ctx, tx, ty, Math.max(th * 1.6, tw * ratio), th, th / 2); // 저값에서도 '바'로 읽히게 최소 폭
-      ctx.save();
-      ctx.globalAlpha = pulse;
-      ctx.fillStyle = low ? THEME.wrong : ratio > 0.4 ? THEME.correct : THEME.gold;
-      ctx.fill();
-      ctx.restore();
-    }
-    ctx.fillStyle = fever ? '#5a4410' : THEME.text; // 금빛 바 위엔 어두운 글자(대비)
-    ctx.font = font(L.font(0.036));
-    ctx.fillText(fever ? '🌻 풍년 타임! 시간 정지' : `${low ? '⏱ ' : ''}${Math.ceil(this.timeLeft)}초`, cx, ty + th / 2);
-
-    // 채움% + 수확 수(작게)
-    ctx.font = font(L.font(0.024), 'normal');
-    ctx.fillStyle = THEME.subtext;
+    const sy = L.zone.playTop + L.gu(0.8);
+    ctx.textBaseline = 'middle';
+    ctx.font = font(L.font(0.028), 'normal');
     ctx.textAlign = 'left';
-    ctx.fillText(`🌾 ${this.harvests}수확 · 밭 ${this._fillPct()}%`, L.safe, ty + th + L.gu(0.7));
+    ctx.fillStyle = THEME.subtext;
+    ctx.fillText(`🌾 ${this.harvests}수확 · 밭 ${this._fillPct()}%`, L.safe, sy);
     ctx.textAlign = 'right';
-    ctx.fillText(this.fieldsCleared > 0 ? `정리 ${this.fieldsCleared}판` : '연속 수확=시간↑', L.W - L.safe, ty + th + L.gu(0.7));
+    if (fever) {
+      ctx.fillStyle = THEME.gold;
+      ctx.font = font(L.font(0.03));
+      ctx.fillText('🌻 풍년 타임! 시간 정지', L.W - L.safe, sy);
+    } else if (low) {
+      ctx.save();
+      ctx.globalAlpha = 0.6 + 0.4 * Math.sin(this.elapsed * 6); // 저시간 맥박
+      ctx.fillStyle = THEME.wrong;
+      ctx.font = font(L.font(0.03));
+      ctx.fillText(`⏱ ${Math.ceil(this.timeLeft)}초 · 서둘러!`, L.W - L.safe, sy);
+      ctx.restore();
+    } else if (this.fieldsCleared > 0) {
+      ctx.fillStyle = THEME.subtext;
+      ctx.fillText(`🌾 정리 ${this.fieldsCleared}판`, L.W - L.safe, sy);
+    }
     ctx.textAlign = 'center';
 
     // 9×9 밭
