@@ -94,8 +94,9 @@ export const g11Farm = {
   },
 
   _layout() {
-    // 시간은 상단 HUD가 표시(중앙 큰 바 폐지) → 상태 줄 아래 남는 세로 공간에 밭을 중앙 정렬.
-    const top = L.zone.playTop + L.gu(1.4);          // 상태 줄 아래
+    // 시간은 상단 HUD가 표시(중앙 큰 바 폐지). 밭은 상단 문제 패널(drawWorldHeader의
+    //   zone.problem+gu2.75 높이) '아래'에서 시작해야 침범하지 않는다 → 그 아래 여백에 세로 중앙 정렬.
+    const top = L.zone.problem + L.gu(3.1);          // 문제 패널 바로 아래(≈playTop+gu2.5, 기존 여백)
     const bottom = L.zone.floor - L.minTouch - L.gu(1.6); // 하단 정보 줄 + 버튼 위
     const avail = bottom - top;
     const size = Math.min(L.W - L.safe * 2, avail);
