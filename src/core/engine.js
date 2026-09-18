@@ -256,10 +256,11 @@ export class Engine {
     const res = this.scoreManager.registerCorrect(pts);
     this.session.record({ gameId: this.game.id, question: problem, userAnswer, correct: true, responseMs: rMs });
     this.problemGenerator.reportResult(problem, true);
-    // 레벨 상향: 콤보가 8의 배수 도달 시 (SPEC 2.1).
+    // 레벨 상향(SPEC 2.1, 재조정): 콤보 8의 배수가 아니라 '현재 레벨에서 쌓은 정답 수'가 레벨별
+    //   문턱(8/12/16/20)에 도달할 때 +1. 레벨이 오를수록 더 오래 요구해 중반 난이도 급상승을 완화한다.
     //   ⚠️ 재설계 2단계: 피버 중 정답은 수학 레벨(축 A) 상승에 반영하지 않는다. 피버는 무적이라 콤보가
-    //   보호되므로, 피버 중 쌓인 콤보로 레벨을 올리면 피버 종료 후 난이도가 부당하게 치솟는다.
-    if (!feverActive && res.combo > 0 && res.combo % 8 === 0) this.problemGenerator.raiseLevel();
+    //   보호되므로, 피버 중 쌓인 정답으로 레벨을 올리면 피버 종료 후 난이도가 부당하게 치솟는다.
+    if (!feverActive && res.combo > 0) this.problemGenerator.registerCorrectForRaise();
 
     // 피버 게이지 +정답 / 종료 배너용 점수 누적 (opt-in 게임만)
     if (this.fever) {

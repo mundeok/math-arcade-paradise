@@ -32,6 +32,7 @@ export class ProblemGenerator {
 
     this.currentLevel = 1; // 축 A — 수학 난이도 (1~5)
     this.consecutiveWrong = 0; // 2연속 오답 시 레벨 하향용
+    this.levelProgress = 0; // 현재 레벨에서 쌓은 정답 수(상향용) — 레벨 변경/리셋 시 0
 
     this.recentKeys = []; // 최근 5문제 중복 방지
     this.reviewQueue = []; // 복습 큐 [{problem, dueAt}]
@@ -55,6 +56,7 @@ export class ProblemGenerator {
 
   reset() {
     this.consecutiveWrong = 0;
+    this.levelProgress = 0;
     this.recentKeys = [];
     this.reviewQueue = [];
     this.served = 0;
@@ -67,15 +69,30 @@ export class ProblemGenerator {
   }
 
   // ── 레벨 조정 (SPEC 2.1) ─────────────────────────────────
-  // 상향: 콤보가 8의 배수에 도달할 때 +1 (최대 5)
+  // 상향(재조정 2026-09): '현재 레벨에서 쌓은 정답 수'가 레벨별 문턱에 도달하면 +1.
+  //   문턱 = 8 + (레벨-1)×4 → 8/12/16/20. 레벨이 오를수록 더 오래 요구해 중반 난이도 급상승을 완화한다.
+  //   (기존 '콤보 8의 배수'는 Lv5까지 ~32콤보로 너무 빨랐음 — "속도가 빨라" 피드백 대응.)
+  //   engine이 비피버 정답마다 호출한다. 피버 정답은 무적 콤보 보호상 제외(engine에서 걸러짐).
+  registerCorrectForRaise() {
+    if (this.settings.fixedLevel || this.currentLevel >= 5) return;
+    this.levelProgress += 1;
+    const need = 8 + (this.currentLevel - 1) * 4;
+    if (this.levelProgress >= need) {
+      this.currentLevel = clamp(this.currentLevel + 1, 1, 5);
+      this.levelProgress = 0;
+    }
+  }
+  // 상향(하위 호환용 즉시 +1 — 현재 미사용, 기존 호출부 대비). 진행도는 초기화한다.
   raiseLevel() {
     if (this.settings.fixedLevel) return; // 고정 모드면 조정 안 함
     this.currentLevel = clamp(this.currentLevel + 1, 1, 5);
+    this.levelProgress = 0;
   }
-  // 하향: 2연속 오답 시 -1 (최소 1)
+  // 하향: 2연속 오답 시 -1 (최소 1). 상향 진행도도 리셋.
   lowerLevel() {
     if (this.settings.fixedLevel) return;
     this.currentLevel = clamp(this.currentLevel - 1, 1, 5);
+    this.levelProgress = 0;
   }
 
   // 정답/오답 결과를 알려주면 복습 큐와 레벨 하향을 관리한다.
