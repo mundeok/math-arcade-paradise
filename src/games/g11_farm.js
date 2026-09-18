@@ -474,6 +474,19 @@ export const g11Farm = {
     }
     ctx.textAlign = 'center';
 
+    // 밭 바닥 판때기 — 배경(월드 이미지)이 타일 틈으로 비쳐 '무지개 격자'로 지저분해지는 걸 막는다.
+    //   격자보다 살짝 크게, 타일(#ba8c62)보다 어두운 흙색을 깔아 타일 사이 틈이 '고랑'처럼 읽히게 한다.
+    //   살짝 그림자로 잔디(배경) 위에 얹힌 화단 느낌.
+    const bpad = L.gu(0.18);
+    ctx.save();
+    ctx.fillStyle = 'rgba(40,28,16,0.30)';
+    roundRect(ctx, board.x - bpad, board.y - bpad + L.gu(0.14), board.w + bpad * 2, board.h + bpad * 2, L.gu(0.42));
+    ctx.fill();
+    ctx.restore();
+    roundRect(ctx, board.x - bpad, board.y - bpad, board.w + bpad * 2, board.h + bpad * 2, L.gu(0.42));
+    ctx.fillStyle = '#7c5a3a'; // 어두운 흙 → 타일 사이 틈이 고랑처럼 보이고, 배경이 안 비친다
+    ctx.fill();
+
     // 9×9 밭
     for (let r = 0; r < GRID; r++) {
       for (let c = 0; c < GRID; c++) {
