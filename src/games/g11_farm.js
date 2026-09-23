@@ -435,6 +435,11 @@ export const g11Farm = {
   render(ctx) {
     drawPlayBackdrop(ctx, this.id, this.elapsed);
     const { board, cell, button } = this._layout();
+    // The image world stays an illustrated frame; this opaque soil plate makes
+    // the gaps between the 9×9 tiles read as furrows instead of rainbow seams.
+    roundRect(ctx, board.x - L.gu(.16), board.y - L.gu(.16), board.w + L.gu(.32), board.h + L.gu(.32), L.gu(.28));
+    ctx.fillStyle = 'rgba(61,43,31,.78)'; ctx.fill();
+    ctx.strokeStyle = 'rgba(255,226,170,.35)'; ctx.lineWidth = L.gu(.05); ctx.stroke();
     const cx = L.W / 2;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -473,19 +478,6 @@ export const g11Farm = {
       ctx.fillText(`🌾 정리 ${this.fieldsCleared}판`, L.W - L.safe, sy);
     }
     ctx.textAlign = 'center';
-
-    // 밭 바닥 판때기 — 배경(월드 이미지)이 타일 틈으로 비쳐 '무지개 격자'로 지저분해지는 걸 막는다.
-    //   격자보다 살짝 크게, 타일(#ba8c62)보다 어두운 흙색을 깔아 타일 사이 틈이 '고랑'처럼 읽히게 한다.
-    //   살짝 그림자로 잔디(배경) 위에 얹힌 화단 느낌.
-    const bpad = L.gu(0.18);
-    ctx.save();
-    ctx.fillStyle = 'rgba(40,28,16,0.30)';
-    roundRect(ctx, board.x - bpad, board.y - bpad + L.gu(0.14), board.w + bpad * 2, board.h + bpad * 2, L.gu(0.42));
-    ctx.fill();
-    ctx.restore();
-    roundRect(ctx, board.x - bpad, board.y - bpad, board.w + bpad * 2, board.h + bpad * 2, L.gu(0.42));
-    ctx.fillStyle = '#7c5a3a'; // 어두운 흙 → 타일 사이 틈이 고랑처럼 보이고, 배경이 안 비친다
-    ctx.fill();
 
     // 9×9 밭
     for (let r = 0; r < GRID; r++) {

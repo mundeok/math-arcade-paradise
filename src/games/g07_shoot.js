@@ -25,6 +25,7 @@
 import { L } from '../core/layout.js';
 import { THEME, font } from '../core/ui.js';
 import { drawNumberRobot, drawToyLauncher, drawPlayBackdrop } from '../art/toyArt.js';
+import { shootImage, preloadShoot } from '../art/shootAssets.js';
 import { drawSquadStatus, drawAimGuide, drawRobotBurst, drawCaptainFrame } from '../art/shootArt.js';
 
 // ── 시간 상수(초). 정답 연출은 흐름을 멈추지 않는다(§2.6 상한 준수). ──
@@ -113,6 +114,7 @@ export const g07Shoot = {
   },
 
   init(engine) {
+    preloadShoot();
     this._detach?.();
     this.engine = engine;
     this.problem = null;
@@ -559,8 +561,8 @@ export const g07Shoot = {
     // 탄환(위로 향하는 빛). 피버 탄환은 궤적 잔상 + 더 밝은 광채.
     for (const b of this.bullets) {
       ctx.save();
-      ctx.fillStyle = THEME.gold;
-      ctx.shadowColor = THEME.gold;
+      ctx.fillStyle = '#71eff1';
+      ctx.shadowColor = '#71eff1';
       ctx.shadowBlur = L.gu(b.fever ? 1.1 : 0.6);
       if (b.fever) {
         ctx.globalAlpha = 0.45;
@@ -570,7 +572,7 @@ export const g07Shoot = {
         ctx.globalAlpha = 1;
       }
       ctx.beginPath();
-      ctx.ellipse(b.x, b.y, b.r, b.r * 1.8, 0, 0, Math.PI * 2);
+      ctx.ellipse(b.x, b.y, b.r * 1.25, b.r * 1.25, 0, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
     }
@@ -579,7 +581,7 @@ export const g07Shoot = {
     for (const en of this.enemies) {
       if (en.judged) continue;
       if (en.y < this.topY - this.enemyR * 2) continue;
-      drawRobot(ctx, en.x, en.y, this._visR(en), String(en.value), 1);
+      drawRobot(ctx, en.x, en.y, this._visR(en), String(en.value), 1, this.enemies.indexOf(en)%3);
       if (this.roundCaptain && !this.multiMode) drawCaptainFrame(ctx, en.x, en.y, this.enemyR);
     }
 
@@ -710,12 +712,22 @@ export const g07Shoot = {
 
 // ── 드로잉 헬퍼(모듈 로컬 — core 미수정) ──────────────────────
 // 숫자 로봇: 둥근 사각 몸통 + 안테나 + 숫자. 정답/오답 색 동일(정답 노출 금지).
-function drawRobot(ctx, x, y, r, label, alpha) {
+function drawRobot(ctx, x, y, r, label, alpha, variant=0) {
+  const art=shootImage(['teal','purple','peach'][variant]);
+  if(art){
+    ctx.save();ctx.globalAlpha*=alpha;
+    const h=r*2.8,w=h*art.naturalWidth/art.naturalHeight;
+    ctx.drawImage(art,x-w/2,y-h*.67,w,h);
+    ctx.fillStyle='#493e60';ctx.textAlign='center';ctx.textBaseline='middle';ctx.font=font(r*.78);ctx.fillText(label,x,y);
+    ctx.restore();return;
+  }
   drawNumberRobot(ctx, x, y, r, label, alpha);
 }
 
 // 발사기(하단). 받침 + 포신.
 function drawLauncher(ctx, x, y, w, h) {
+  const art=shootImage('ship');
+  if(art){const aw=w*1.35,ah=aw*art.naturalHeight/art.naturalWidth;ctx.drawImage(art,x-aw/2,y-ah*.75,aw,ah);return;}
   drawToyLauncher(ctx, x, y, w, h);
 }
 

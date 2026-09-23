@@ -7,7 +7,8 @@
 
 import { L } from '../core/layout.js';
 import { THEME, font, roundRect } from '../core/ui.js';
-import { drawTreasureChest, drawPirate, drawPlayBackdrop, drawRewardText } from '../art/toyArt.js';
+import { drawTreasureChest as drawChestFallback, drawPirate as drawPirateFallback, drawPlayBackdrop, drawRewardText } from '../art/toyArt.js';
+import { preloadTreasureAssets, drawTreasureSprite } from '../art/treasureAssets.js';
 
 const CONCEPT_KEY = 'g10_remain.oneShotSeen'; // 새 조작 안내. 학습 진도/보상 저장이 아님.
 const REVEAL_DUR = 0.4; // 상자 수집 후 다음 문제. 이전 식은 별도 영수증 영역에 남는다.
@@ -70,6 +71,7 @@ export const g10Treasure = {
   },
 
   init(engine) {
+    preloadTreasureAssets();
     if (this.engine) this.destroy(); // 엔진의 재시작 경로는 destroy를 호출하지 않는다.
     this.engine = engine;
     this.mode = 'concept'; // concept / play(수량 선택) / collect(정답) / reveal / waiting(오답)
@@ -716,11 +718,11 @@ export const g10Treasure = {
       for (let i = 0; i < this.pile; i++) {
         const cc = i % cols;
         const rr = Math.floor(i / cols);
-        drawGem(ctx, startX + cc * gx, startY + rr * L.gu(0.68), L.gu(0.32));
+        drawGem(ctx, startX + cc * gx, startY + rr * L.gu(0.72), L.gu(0.40));
       }
     } else {
       // 뭉치 + 개수
-      drawGem(ctx, rect.x + L.gu(2), rect.y + rect.h / 2, L.gu(0.7));
+      drawGem(ctx, rect.x + L.gu(2), rect.y + rect.h / 2, L.gu(0.82));
       ctx.fillStyle = '#674631';
       ctx.font = font(L.font(0.05));
       ctx.fillText(`× ${this.pile}`, rect.x + rect.w / 2 + L.gu(1), rect.y + rect.h / 2);
@@ -755,7 +757,7 @@ export const g10Treasure = {
     ctx.lineWidth = L.gu(0.08);
     ctx.stroke();
     const bob = this.mode === 'reveal' ? Math.sin(this.reveal.t / REVEAL_DUR * Math.PI) * L.gu(0.15) : 0;
-    drawTreasureChest(ctx, r.x + r.w / 2, r.y + L.gu(2.1) - bob, L.gu(3.8));
+    drawTreasureChest(ctx, r.x + r.w / 2, r.y + L.gu(2.1) - bob, L.gu(3.8), this.mode === 'collect' || this.mode === 'reveal');
     ctx.fillStyle = '#674631';
     ctx.font = font(L.font(0.024), 'normal');
     // reveal 중이면 나머지 수를 보여준다
@@ -789,13 +791,13 @@ export const g10Treasure = {
       ctx.textBaseline = 'middle';
       // 해적
       const bounce = Math.sin((this.pirateBounces[i] || 0) / 0.18 * Math.PI) * L.gu(0.16);
-      drawPirate(ctx, r.x + r.w / 2, r.y + r.h * 0.3 - bounce, Math.min(L.gu(2.3), r.h * 0.55, r.w * 0.9));
+      drawPirate(ctx, r.x + r.w / 2, r.y + r.h * 0.29 - bounce, Math.min(L.gu(2.75), r.h * 0.62, r.w * 0.92), i);
       // 받은 개수(크게 — "몇 개씩 갔는지")
       ctx.fillStyle = '#674631';
       ctx.font = font(Math.min(L.font(0.04), r.h * 0.3));
       ctx.fillText(`${this.counts[i]}개`, r.x + r.w / 2, r.y + r.h * 0.75);
       for (let j = 0; j < Math.min(9, this.counts[i]); j++) {
-        drawGem(ctx, r.x + L.gu(0.27) + (j % 3) * L.gu(0.24), r.y + r.h - L.gu(0.23) - Math.floor(j / 3) * L.gu(0.24), L.gu(0.13));
+        drawGem(ctx, r.x + L.gu(0.36) + (j % 3) * L.gu(0.35), r.y + r.h - L.gu(0.30) - Math.floor(j / 3) * L.gu(0.33), L.gu(0.23));
       }
       if (over) {
         ctx.fillStyle = THEME.wrong;
@@ -809,7 +811,7 @@ export const g10Treasure = {
   _drawButtons(ctx) {
     if (this.mode === 'collect' || this.mode === 'reveal') {
       if (this.practice) this._btn(ctx, this._btnConcept(), '본게임', THEME.panel, L.font(0.026));
-      this._btn(ctx, this._btnDone(), '남은 보석 담기  →', '#a5693d', L.font(0.037));
+      this._btn(ctx, this._btnDone(), '남은 보석 담기  →', '#c88732', L.font(0.037));
       return;
     }
     this._btn(ctx, this._btnConcept(), this.practice ? '본게임' : '연습', THEME.panel, L.font(0.026));
@@ -823,7 +825,7 @@ export const g10Treasure = {
     }
     this._btn(ctx, this._btnReset(), '↺ 다시', THEME.panel, L.font(0.03));
     this._btn(ctx, this._btnRound(), '레버 · 1개씩!', '#218e9a', L.font(0.03));
-    this._btn(ctx, this._btnDone(), '남은 보석 담기 →', '#a5693d', L.font(0.035));
+    this._btn(ctx, this._btnDone(), '남은 보석 담기 →', '#c88732', L.font(0.035));
   },
 
   _drawPredValue(ctx) {
@@ -1120,6 +1122,7 @@ function ease(t) {
 
 // 코드 기반 장난감 보석. 논리 크기는 L에서 받은 반지름으로만 결정한다.
 function drawGem(ctx, x, y, r) {
+  if(drawTreasureSprite(ctx,'gem',x,y,r*2,r*2))return;
   ctx.save(); ctx.translate(x, y);
   ctx.beginPath(); ctx.moveTo(-r, -r * 0.35); ctx.lineTo(-r * 0.5, -r * 0.85);
   ctx.lineTo(r * 0.5, -r * 0.85); ctx.lineTo(r, -r * 0.35); ctx.lineTo(0, r); ctx.closePath();
@@ -1127,4 +1130,11 @@ function drawGem(ctx, x, y, r) {
   ctx.beginPath(); ctx.moveTo(-r, -r * 0.35); ctx.lineTo(r, -r * 0.35); ctx.lineTo(0, r);
   ctx.lineTo(r * 0.35, -r * 0.35); ctx.lineTo(-r * 0.5, -r * 0.85);
   ctx.strokeStyle = '#e5ffff'; ctx.stroke(); ctx.restore();
+}
+
+function drawPirate(ctx,x,y,size,index=0){
+  if(!drawTreasureSprite(ctx,['rabbit','puppy','sprout'][index%3],x,y,size,size))drawPirateFallback(ctx,x,y,size);
+}
+function drawTreasureChest(ctx,x,y,size,open=false){
+  if(!drawTreasureSprite(ctx,open?'open':'closed',x,y,size,size*.85))drawChestFallback(ctx,x,y,size);
 }

@@ -4,6 +4,7 @@ import { createBalloonBoard } from './balloonBoard.js';
 import { L } from '../core/layout.js';
 import { THEME, font } from '../core/ui.js';
 import { drawPlayBackdrop, drawRewardText } from '../art/toyArt.js';
+import { balloonImage, drawBalloonImage } from '../art/balloonAssets.js';
 
 const BOARD_COUNT = 6;
 const BOARD_BONUS = 300;
@@ -62,6 +63,7 @@ export const g09Balloon = {
   },
 
   init(engine) {
+    balloonImage();
     this.engine = engine;
     this.problem = null;
     this.nextProblem = null;
@@ -491,7 +493,7 @@ function labelFont(label) {
 function drawBalloon(ctx, x, y, rx, ry, hue, label, fontPx) {
   ctx.save();
   // 실
-  ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+  ctx.strokeStyle = 'rgba(101,89,123,0.65)';
   ctx.lineWidth = Math.max(L.gu(.05), rx * 0.04);
   ctx.beginPath();
   ctx.moveTo(x, y + ry);
@@ -517,6 +519,7 @@ function drawBalloon(ctx, x, y, rx, ry, hue, label, fontPx) {
   ctx.ellipse(x - rx * 0.39, y - ry * 0.57, rx * 0.14, ry * 0.16, -0.4, 0, Math.PI * 2);
   ctx.fillStyle = 'rgba(255,255,255,0.4)';
   ctx.fill();
+  drawBalloonImage(ctx,x,y,rx,ry,Math.max(0,FESTIVE.indexOf(hue)));
   // 매듭
   ctx.beginPath();
   ctx.moveTo(x, y + ry);
@@ -535,12 +538,12 @@ function drawBalloon(ctx, x, y, rx, ry, hue, label, fontPx) {
   }
   ctx.beginPath();ctx.arc(x, y + ry * 0.68, rx * 0.065, 0, Math.PI);
   ctx.strokeStyle = '#384963';ctx.lineWidth = rx * 0.022;ctx.stroke();
-  ctx.fillStyle = '#fff';
+  ctx.fillStyle = '#173654';
   ctx.font = font(fontPx);
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.strokeStyle = 'rgba(31,24,57,0.5)';
-  ctx.lineWidth = rx * 0.045;
+  ctx.strokeStyle = '#fff1d7';
+  ctx.lineWidth = rx * 0.065;
   ctx.lineJoin = 'round';
   ctx.strokeText(label, x, y);
   ctx.fillText(label, x, y);

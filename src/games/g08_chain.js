@@ -3,6 +3,7 @@ import { L } from '../core/layout.js';
 import { font } from '../core/ui.js';
 import { adjacent, newBoard, refillBoard, SIDE } from './chainBoard.js';
 import { drawChainScene } from '../art/chainArt.js';
+import { preloadChainAssets } from '../art/chainAssets.js';
 
 const pick=a=>a[Math.floor(Math.random()*a.length)];
 export const g08Chain={
@@ -25,6 +26,7 @@ export const g08Chain={
   },
   get br(){return this._layout().r;},
   init(e){
+    preloadChainAssets();
     this._detach?.();this.engine=e;this.time=0;this.remaining=60;this.phase='play';
     this.waveIndex=0;this.progress=0;this.poppedCount=0;this.longest=0;this.chainCount=0;
     this.board=[];this.path=[];this.dragging=false;this.cursor=0;this.keyboardMode=false;this.pops=[];this.feedback=null;

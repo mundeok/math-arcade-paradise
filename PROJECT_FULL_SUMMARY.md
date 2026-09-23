@@ -29,7 +29,7 @@
 ## 1. 기술 사양 (전 구간 공통)
 
 - **HTML5 Canvas 2D만.** WebGL 금지.
-- **외부 리소스 0개** — CDN·폰트파일·이미지·오디오 전부 금지. 아이콘은 도형 드로잉 또는 이모지.
+- **외부 리소스 0개** — CDN·폰트파일·오디오 전부 금지. 승인된 로컬 PNG는 g03 레이싱과 메뉴 대표 그림에 한정하며, 나머지 게임 아이콘은 도형 드로잉 또는 이모지.
 - **효과음은 Web Audio 신디사이저로 코드 생성** (`soundManager`). 오디오 파일 금지.
 - `requestAnimationFrame` + **delta-time** 기반. 프레임 수 의존 로직 금지.
 - **논리 캔버스 800×1280 고정** (갤럭시 탭 세로). `object-fit: contain` 레터박스, devicePixelRatio 반영.
@@ -207,7 +207,9 @@ npm run build   # = node build.js
 
 ## 10. 개발 이력(발췌)
 
-Phase 0(엔진+더미) → Phase 1(g01·g02) → Phase 2(g09·g06) → Phase 3(g04·g08, 재미 표준 core 추출) → Phase 4(g05·g07) → Phase 5(g03·g10) → 이후 밸런싱.
+Phase 0(엔진+더미) → Phase 1(g01·g02) → Phase 2(g09·g06) → Phase 3(g04·g08, 재미 표준 core 추출) → Phase 4(g05·g07) → Phase 5(g03·g10) → 이후 밸런싱 → 메뉴 대표 그림.
+
+메뉴는 11개 동시 그리드 대신 무작위 시작·순환형 가로 캐러셀을 사용한다. 중앙 게임 하나를 크게 보여주고 양옆 미리보기, 게임 설명, 조작법, 연산 칩, 별도 시작 버튼을 제공한다.
 
 최근 커밋(신→구):
 - `balance: rework level ladder for 3rd grade arcade pace` — 레벨 사다리 재조정(세 자리·올림 곱셈 제거)

@@ -24,6 +24,7 @@ import { L } from '../core/layout.js';
 import { THEME, font, roundRect } from '../core/ui.js';
 import { drawPlayBackdrop, drawRewardText } from '../art/toyArt.js';
 import { DESSERT_KINDS, drawDessert, drawFinishedDessert, drawDessertPlate, drawDessertShop } from '../art/stackDessertArt.js';
+import { preloadStackAssets } from '../art/stackAssets.js';
 
 const BASE_FALL_SEC = 2.6; // 콤보 0에서 낙하 거리(fallDist)를 통과하는 시간
 const FALL_MIN_SEC = 2.2; // 교사 배율까지 적용한 최종 하한. 피버는 양으로 보상한다.
@@ -78,6 +79,7 @@ export const g06Stack = {
   tutorial: {
     text: '좌우로 움직여 정답을 받아! 가운데로 받으면 PERFECT! 디저트를 완성해 봐!',
     draw(ctx) {
+      preloadStackAssets();
       const cx = L.W / 2;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -115,6 +117,7 @@ export const g06Stack = {
   },
 
   init(engine) {
+    preloadStackAssets();
     this.engine = engine;
     this.problem = null;
     this.blocks = []; // [{value, correct, isMultiple?, x, y, age, resolved}]

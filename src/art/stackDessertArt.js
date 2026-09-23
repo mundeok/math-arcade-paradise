@@ -1,7 +1,9 @@
-// Canvas 전용 디저트 소품. 정답 여부나 숫자로 외형을 바꾸지 않는다.
+// 이미지 디저트 소품 + Canvas 폴백. 정답 여부나 숫자로 외형을 바꾸지 않는다.
 // 렌더는 게임 상태·난수·판정에 관여하지 않는다.
 import { L } from '../core/layout.js';
 import { font, roundRect } from '../core/ui.js';
+import { stackImage } from './stackAssets.js';
+import { worldImage } from './worldAssets.js';
 
 export const DESSERT_KINDS = Object.freeze([
   Object.freeze({ id: 'pancake', name: '팬케이크', squash: 0.14, pitch: 1, wall: '#fff1e8', stripe: '#ffe9e4' }),
@@ -21,7 +23,11 @@ function oval(ctx, x, y, rx, ry, color) {
 export function drawDessert(ctx, x, y, w, h, label = '', fontPx = h * 0.65, kind = 'pancake') {
   ctx.save();
   ctx.translate(x, y);
-  if (kind === 'pudding') {
+  const image = stackImage(kind);
+  if (image) {
+    // Match the existing collision rectangle, including squash and wave compression.
+    ctx.drawImage(image, -w / 2, -h / 2, w, h);
+  } else if (kind === 'pudding') {
     ctx.beginPath(); ctx.moveTo(-w * 0.34, -h * 0.46); ctx.lineTo(w * 0.34, -h * 0.46);
     ctx.quadraticCurveTo(w * 0.4, -h * 0.4, w * 0.49, h * 0.3);
     ctx.quadraticCurveTo(w * 0.5, h * 0.5, w * 0.36, h * 0.5);
@@ -106,6 +112,13 @@ export function drawFinishedDessert(ctx, x, bottom, w, layerH, count, kind = 'pa
 
 export function drawDessertPlate(ctx, x, y, w, perfectHalf = 0) {
   ctx.save();
+  const image = !perfectHalf && stackImage('plate');
+  if (image) {
+    // The serving plate sits below the floor. The top catching guide stays exact.
+    ctx.drawImage(image, x - w / 2, y - L.gu(0.08), w, w * 0.22);
+    ctx.restore();
+    return;
+  }
   ctx.fillStyle = '#729cac';
   roundRect(ctx, x - w / 2, y, w, L.gu(0.3), L.gu(0.15)); ctx.fill();
   ctx.fillStyle = '#f9fffb';
@@ -118,6 +131,9 @@ export function drawDessertPlate(ctx, x, y, w, perfectHalf = 0) {
 }
 
 export function drawDessertShop(ctx, time, kind = DESSERT_KINDS[0]) {
+  // drawPlayBackdrop already painted the image and calm play-area scrim.
+  // Only the failed/loading asset path needs this opaque procedural shop.
+  if (worldImage('g06_stack')) return;
   const top = L.zone.problem + L.gu(4.6), bottom = L.zone.floor;
   ctx.save();
   ctx.fillStyle = kind.wall; ctx.fillRect(0, top, L.W, L.H - top);

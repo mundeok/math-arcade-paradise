@@ -3,6 +3,7 @@
 import { L } from '../core/layout.js';
 import { THEME, font } from '../core/ui.js';
 import { drawPlayBackdrop, drawRewardText } from '../art/toyArt.js';
+import { timingDrum } from '../art/timingAssets.js';
 
 const BEAT_SEC = 60 / 90;
 const PERFECT_SEC = .120;
@@ -32,6 +33,7 @@ export const g04Timing = {
   },
 
   init(engine){
+    ['drum','teal','pink','yellow','bear'].forEach(timingDrum);
     this.engine=engine;this.time=0;this.phraseHits=0;this.phrasePerfects=0;this.phrases=0;
     this.ensemble=null;this.note=null;this.comboNotice=null;this.feverBanner=null;
     this.multiMode=false;this.wasFever=false;this.multiCooldown=0;this.savedNormal=null;
@@ -240,8 +242,10 @@ export const g04Timing = {
     const members=this.multiMode?Math.min(3,this.engine.fever.stage):Math.min(3,this.phraseHits);
     for(let i=0;i<3;i++){
       const x=this.cx+(i-1)*L.gu(6);
-      animal(ctx,x,cy+bounce,L.gu(i===1?1.12:.78),i===1?'#f3bf8e':i===0?'#b5d5ae':'#d0b8e6',i);
-      if(i===1||members>i){
+      const bear=timingDrum('bear');
+      if(bear){const h=L.gu(i===1?2.8:2.4),w=h*bear.naturalWidth/bear.naturalHeight;ctx.drawImage(bear,x-w/2,cy+bounce-h*.58,w,h);}
+      else animal(ctx,x,cy+bounce,L.gu(i===1?1.12:.78),i===1?'#f3bf8e':i===0?'#b5d5ae':'#d0b8e6',i);
+      if(!bear&&(i===1||members>i)){
         ctx.strokeStyle='#866259';ctx.lineWidth=L.gu(.09);ctx.lineCap='round';
         ctx.beginPath();ctx.moveTo(x+L.gu(.65),cy+L.gu(.3));ctx.lineTo(x+L.gu(1.3),cy-L.gu(.4)-pulse*L.gu(.6));ctx.stroke();
       }
@@ -269,6 +273,17 @@ export const g04Timing = {
 
 function drum(ctx,x,y,rx,ry,color,label,pulse,squash){
   ctx.save();ctx.translate(x,y);ctx.scale(1+squash*.04,1-squash*.12);
+  const variant=['pink','teal','drum','yellow'][Math.max(0,COLORS.indexOf(color))];
+  const art=timingDrum(variant);
+  if(art){
+    ctx.drawImage(art,-rx,-ry,rx*2,ry*2+L.gu(1.2));
+    ctx.save();ctx.globalAlpha=pulse*.8;
+    const faceY=-ry+(ry*2+L.gu(1.2))*(variant==='drum'?.26:.24);
+    ctx.beginPath();ctx.ellipse(0,faceY,rx+L.gu(.12),ry*.72,0,0,Math.PI*2);
+    ctx.strokeStyle='#ffcc6b';ctx.lineWidth=L.gu(.1);ctx.stroke();ctx.restore();
+    ctx.fillStyle='#594263';ctx.font=font(L.font(.04));ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(label,0,faceY);
+    ctx.restore();return;
+  }
   // 북통·가죽면·줄. 숫자와 박자 파동은 모든 북에 동일한 규칙.
   ctx.fillStyle=color;ctx.strokeStyle='#89657a';ctx.lineWidth=L.gu(.08);
   ctx.beginPath();ctx.roundRect(-rx,-ry*.1,rx*2,ry+L.gu(1.2),L.gu(.35));ctx.fill();ctx.stroke();

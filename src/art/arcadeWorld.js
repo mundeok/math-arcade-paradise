@@ -2,6 +2,9 @@
 // answer data, timers or score changes. All geometry derives from L or a size.
 import { L } from '../core/layout.js';
 import { roundRect } from '../core/ui.js';
+import { preloadWorldAssets, worldImage } from './worldAssets.js';
+
+preloadWorldAssets();
 
 const WORLDS = {
   g01_combo: ['#b8a7ee','#fbd6e5','#7468ab','cloud'],
@@ -130,6 +133,26 @@ export function drawWorldHeader(c,id) {
 export function drawArcadeWorld(c,id,time=0) {
   const [sky,base,accent,kind]=WORLDS[id] || WORLDS.g02_catch;
   c.save();
+  const image = worldImage(id);
+  if (image) {
+    const sourceRatio = image.naturalWidth / image.naturalHeight;
+    const targetRatio = L.W / L.H;
+    let sx = 0, sy = 0, sw = image.naturalWidth, sh = image.naturalHeight;
+    if (sourceRatio > targetRatio) {
+      sw = image.naturalHeight * targetRatio;
+      sx = (image.naturalWidth - sw) / 2;
+    } else {
+      sh = image.naturalWidth / targetRatio;
+      sy = (image.naturalHeight - sh) / 2;
+    }
+    c.drawImage(image, sx, sy, sw, sh, 0, 0, L.W, L.H);
+    // Quiet veil protects equations, grid cells, and the HUD without flattening the art.
+    c.fillStyle = 'rgba(20,52,47,.16)';
+    c.fillRect(0, 0, L.W, L.H);
+    drawWorldHeader(c,id);
+    c.restore();
+    return;
+  }
   const g=c.createLinearGradient(0,L.zone.hudBottom,0,L.H);
   g.addColorStop(0,sky);g.addColorStop(1,base);c.fillStyle=g;c.fillRect(0,0,L.W,L.H);
   if(kind==='sea') sea(c,time);

@@ -21,6 +21,7 @@
 import { L } from '../core/layout.js';
 import { THEME, font, roundRect } from '../core/ui.js';
 import { drawPlayBackdrop, drawRewardText } from '../art/toyArt.js';
+import { drawMatchAnimal, matchImage, preloadMatchAssets } from '../art/matchAssets.js';
 
 const MAX_SLOTS = 6; // 세로 슬롯 수(높이 계산 기준 — 실제 표시 수는 콤보 티어를 따른다)
 const ENTER_SEC = 0.3; // 등장(걸어 들어옴) 시간
@@ -45,6 +46,7 @@ export const g05Match = {
   tutorial: {
     text: '간식을 눌러 고르고, 정답 숫자를 든 동물에게 배달해!',
     draw(ctx) {
+      preloadMatchAssets();
       const midY = L.gu(5);
       const cardW = L.gu(4.4);
       const cardH = L.gu(1.7);
@@ -83,6 +85,7 @@ export const g05Match = {
   },
 
   init(engine) {
+    preloadMatchAssets();
     this.engine = engine;
     this.snacks = []; // [{problem, value, slot, y, appearT, leaving, gone}]
     this.animals = []; // [{value, isTrap, problem, kind, patience, maxPatience, slot, y, appearT, leaving, leaveKind, leaveT, eatT, nearMissUsed, stompT}]
@@ -538,14 +541,16 @@ export const g05Match = {
     ctx.globalAlpha = Math.max(0, alpha);
     const lift = isSel ? -L.gu(0.35) : 0; // 선택 시 살짝 떠오름
     roundRect(ctx, r.x + dx, r.y + lift, r.w, r.h, L.gu(0.4));
-    ctx.fillStyle = '#39304d';
+    const tray = ctx.createLinearGradient(0, r.y + lift, 0, r.y + lift + r.h);
+    tray.addColorStop(0, '#fff5d9'); tray.addColorStop(1, '#e9cf9d');
+    ctx.fillStyle = tray;
     ctx.fill();
-    ctx.strokeStyle = isSel ? THEME.gold : 'rgba(255,255,255,0.22)';
+    ctx.strokeStyle = isSel ? '#ed991d' : '#bd8b51';
     ctx.lineWidth = isSel ? L.gu(0.26) : L.gu(0.08);
     ctx.stroke();
     // 쿠키 아이콘 + 식(카드 폭에 맞춰 축소)
-    drawCookie(ctx, r.x + dx + L.gu(0.9), r.y + lift + r.h / 2, L.gu(0.5));
-    ctx.fillStyle = '#fff';
+    drawCookie(ctx, r.x + dx + L.gu(0.9), r.y + lift + r.h / 2, L.gu(0.7));
+    ctx.fillStyle = '#503724';
     fitText(ctx, s.problem.text, r.x + dx + L.gu(1.7) + (r.w - L.gu(2.2)) / 2, r.y + lift + r.h / 2, r.w - L.gu(2.3), L.font(0.04), L.font(0.024));
     if (s.problem.fromReview) {
       ctx.fillStyle = THEME.gold;
@@ -664,6 +669,8 @@ export const g05Match = {
 // ── 모듈 로컬 그림 헬퍼(core 미수정, 좌표는 호출부가 L로 계산) ──────────────
 // 간식 아이콘: 초콜릿칩 쿠키.
 function drawCookie(ctx, x, y, r) {
+  const image = matchImage('cookie');
+  if (image) { ctx.drawImage(image, x - r, y - r, r * 2, r * 2); return; }
   ctx.beginPath();
   ctx.arc(x, y, r, 0, Math.PI * 2);
   ctx.fillStyle = '#d7a55e';
@@ -678,6 +685,7 @@ function drawCookie(ctx, x, y, r) {
 
 // 동물 얼굴: 종류(kind)로 색·귀 모양, 기분(mood)으로 눈·입. 정답/함정은 색으로 미리 구별하지 않는다.
 function drawCreature(ctx, x, y, r, kind, mood, t) {
+  if (drawMatchAnimal(ctx, x, y, r, kind, mood, t)) return;
   const col = KIND_COLORS[kind % KIND_COLORS.length];
   const bob = Math.sin((t || 0) * 3) * r * 0.05;
   ctx.save();

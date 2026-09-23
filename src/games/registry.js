@@ -36,17 +36,17 @@ export const IMPLEMENTED = [
 // 메뉴 표시용 기본 10종 + 배열 구성 체험 1종 (추가 명세: GAMEPLAY_REVIEW.md).
 // id가 IMPLEMENTED에 있으면 활성, 없으면 비활성.
 export const CATALOG = [
-  { id: 'g01_delivery', name: '두 갈래 배송', emoji: '📦' },
-  { id: 'g02_catch', name: '떨어지는 캐치', emoji: '🎪' },
-  { id: 'g03_racing', name: '레이싱 계산', emoji: '🚀' },
-  { id: 'g04_timing', name: '타이밍 퍼즐', emoji: '🎯' },
-  { id: 'g05_match', name: '동물 간식 배달', emoji: '🍪' },
-  { id: 'g06_stack', name: '디저트 타워', emoji: '🥞' },
-  { id: 'g07_shoot', name: '슈팅 계산', emoji: '💣' },
-  { id: 'g08_chain', name: '배수 젤리 팡', emoji: '🔗' },
-  { id: 'g09_balloon', name: '벌룬 팝', emoji: '🎈' },
-  { id: 'g10_remain', name: '나머지 보물찾기', emoji: '💎' },
-  { id: 'g11_farm', name: '곱셈 농장', emoji: '🌱' },
+  { id: 'g01_delivery', name: '두 갈래 배송', emoji: '📦', description: '계산 카드가 가야 할 정답 창고를 골라 보내요.', control: '왼쪽 또는 오른쪽 선택' },
+  { id: 'g02_catch', name: '떨어지는 캐치', emoji: '🎪', description: '떨어지는 숫자 가운데 정답만 빠르게 잡아요.', control: '정답 숫자 탭' },
+  { id: 'g03_racing', name: '레이싱 계산', emoji: '🚀', description: '정답 차선으로 달려 숫자 게이트를 통과해요.', control: '좌우 탭 또는 드래그' },
+  { id: 'g04_timing', name: '타이밍 퍼즐', emoji: '🎯', description: '계산하고 정답 북을 박자에 맞춰 연주해요.', control: '정답 북 탭' },
+  { id: 'g05_match', name: '동물 간식 배달', emoji: '🍪', description: '간식을 골라 정답 숫자를 든 동물에게 배달해요.', control: '간식 탭 → 동물 탭' },
+  { id: 'g06_stack', name: '디저트 타워', emoji: '🥞', description: '정답 디저트를 받아 맛있는 타워를 완성해요.', control: '카트 좌우 이동' },
+  { id: 'g07_shoot', name: '슈팅 계산', emoji: '💣', description: '정답 숫자 로봇을 조준해 빠르게 발사해요.', control: '이동 후 발사 탭' },
+  { id: 'g08_chain', name: '배수 젤리 팡', emoji: '🔗', description: '같은 단의 배수 젤리를 이어서 터뜨려요.', control: '이웃한 젤리 드래그' },
+  { id: 'g09_balloon', name: '벌룬 팝', emoji: '🎈', description: '값이 같은 풍선을 모두 찾아 터뜨려요.', control: '같은 값 풍선 탭' },
+  { id: 'g10_remain', name: '나머지 보물찾기', emoji: '💎', description: '보석을 똑같이 나눠 남는 수를 찾아요.', control: '수량 조절 후 발사' },
+  { id: 'g11_farm', name: '곱셈 농장', emoji: '🌱', description: '밭에 직사각형 배열을 그려 곱셈을 만들어요.', control: '드래그 후 수확' },
 ];
 
 // Phase 0 검증용 더미 게임(카탈로그 맨 앞에 활성 상태로 노출)

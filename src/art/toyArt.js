@@ -81,12 +81,25 @@ function car(c) {
 /** Paint only the existing card bounds; names, badges and input remain in menu. */
 export function drawGameCard(c, id, r, active = true) {
   if (id === 'g01_delivery') id = 'g06_stack';
-  c.save();
   const p = PALETTES[id] || ['#68619b', '#333451', '#c4b7ff'];
+  // 대표 그림의 입체감과 이어지도록 카드 자체에 얕은 장난감 패널 깊이를 준다.
+  c.save();
+  c.shadowColor = 'rgba(3, 10, 25, 0.48)';
+  c.shadowBlur = L.gu(.24);
+  c.shadowOffsetY = L.gu(.13);
+  roundRect(c, r.x, r.y, r.w, r.h, L.gu(.55));
+  c.fillStyle = active ? p[1] : '#303948'; c.fill();
+  c.restore();
+
+  c.save();
   roundRect(c, r.x, r.y, r.w, r.h, L.gu(.55)); c.clip();
   const g = c.createLinearGradient(r.x, r.y, r.x + r.w*.4, r.y + r.h);
   g.addColorStop(0, active ? p[0] : '#515969'); g.addColorStop(1, active ? p[1] : '#303948');
   c.fillStyle = g; c.fillRect(r.x, r.y, r.w, r.h);
+  const shine = c.createLinearGradient(r.x, r.y, r.x, r.y + r.h * .55);
+  shine.addColorStop(0, 'rgba(255,255,255,.17)'); shine.addColorStop(.55, 'rgba(255,255,255,.025)'); shine.addColorStop(1, 'rgba(255,255,255,0)');
+  c.fillStyle = shine; c.fillRect(r.x, r.y, r.w, r.h * .58);
+  c.fillStyle = 'rgba(4, 12, 29, .13)'; c.fillRect(r.x, r.y + r.h * .88, r.w, r.h * .12);
   oval(c, r.x + r.w*.5, r.y + L.gu(1.55), L.gu(1.5), L.gu(1.25), '#ffffff0c');
   line(c, [[r.x+L.gu(.4),r.y+L.gu(.35)],[r.x+r.w-L.gu(.4),r.y+L.gu(.35)]], '#ffffff30', L.gu(.045));
   star(c, r.x+L.gu(.65), r.y+L.gu(1.65), L.gu(.15), p[2]);
@@ -103,7 +116,9 @@ export function drawGameIcon(c, id, x, y, size) {
   oval(c, 0, .4, .43, .09, '#10203955');
   c.rotate(-.065);
   // Cream sticker rim separates the drawing from all card colours.
+  c.shadowColor = '#0b172966'; c.shadowBlur = .09; c.shadowOffsetY = .055;
   box(c, -.44, -.43, .88, .85, .25, CREAM);
+  c.shadowColor = 'transparent'; c.shadowBlur = 0; c.shadowOffsetY = 0;
   c.scale(.81, .81);
   switch (id) {
     case 'g01_delivery':
@@ -206,6 +221,18 @@ export function drawTileGleam(c, r) {
 /** Shared entry retained for games that already use the toy art module. */
 export function drawPlayBackdrop(c, id, time = 0) {
   drawArcadeWorld(c, id, time);
+  // Static-image worlds need a quiet receiving surface behind dynamic targets.
+  // Keep the art visible around the edges while preventing background bleed
+  // between the snack/animal rows and the dessert play lane.
+  if (id === 'g05_match') {
+    const y = L.zone.problem + L.gu(2.95);
+    box(c, L.safe - L.gu(.2), y, L.W - (L.safe - L.gu(.2)) * 2,
+      L.zone.playBottom - y + L.gu(.35), L.gu(.48), 'rgba(244,239,216,.78)', '#8ab7a6');
+  } else if (id === 'g06_stack') {
+    const y = L.zone.problem + L.gu(4.45);
+    box(c, L.safe - L.gu(.2), y, L.W - (L.safe - L.gu(.2)) * 2,
+      L.H - y - L.gu(1.1), L.gu(.48), 'rgba(255,244,216,.68)', '#c7a875');
+  }
 }
 
 /** Keep reward colours readable against sky, water and scenery. */
