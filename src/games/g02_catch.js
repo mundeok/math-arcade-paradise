@@ -18,6 +18,7 @@
 import { L } from '../core/layout.js';
 import { THEME, font } from '../core/ui.js';
 import { drawJellySurface, drawPlayBackdrop, drawRewardText } from '../art/toyArt.js';
+import { catchImage, preloadCatch, drawGift } from '../art/catchAssets.js';
 
 // ── 시간 상수(초). 정답 연출은 흐름을 멈추지 않는다(§2.6 상한 준수). ──
 const HITSTOP = 0.05; // 순간 정지(0.03~0.06)
@@ -96,6 +97,7 @@ export const g02Catch = {
   },
 
   init(engine) {
+    preloadCatch();
     this.engine = engine;
     this.problem = null;
     this.fallers = []; // [{value, correct, x, y, age, judged}]
@@ -438,6 +440,8 @@ export const g02Catch = {
   render(ctx) {
     drawPlayBackdrop(ctx, this.id, this.time || 0);
     this._drawFeverBg(ctx);
+    const bear=catchImage('bear');
+    if(bear){const h=L.gu(6.1),w=h*bear.naturalWidth/bear.naturalHeight;ctx.drawImage(bear,(L.W-w)/2,L.H-h-L.gu(.2),w,h);}
     if (this.engine.fever) {
       const h = L.gu(0.5);
       this.engine.fever.renderGauge(ctx, { x: L.safe, y: L.zone.gauge, w: L.W - L.safe * 2, h });
@@ -499,9 +503,10 @@ export const g02Catch = {
       if (f.judged) continue;
       if (f.y < -this.R) continue;
       const r = this._visR(f);
-      drawJellySurface(ctx, f.x, f.y, r);
-      ctx.fillStyle = '#fff';
-      ctx.font = font(L.font(0.05));
+      const gift=drawGift(ctx,f.x,f.y,r,Math.floor(f.x/L.W*6)%3);
+      if(!gift)drawJellySurface(ctx, f.x, f.y, r);
+      ctx.fillStyle = gift?'#514460':'#fff';
+      ctx.font = font(L.font(gift?0.044:0.05));
       ctx.fillText(String(f.value), f.x, f.y);
     }
   },
@@ -512,6 +517,10 @@ export const g02Catch = {
       const scale = prog < 0.3 ? 1 + 0.3 * (prog / 0.3) : 1.3 * (1 - (prog - 0.3) / 0.7);
       ctx.save();
       ctx.globalAlpha = Math.max(0, 1 - prog);
+      const gx=p.x+(L.W/2-p.x)*prog,gy=p.y+(L.H-L.gu(2.5)-p.y)*prog;
+      if(drawGift(ctx,gx,gy,this.R*(1-prog*.75),Math.floor(p.x/L.W*6)%3)){
+        ctx.restore();continue;
+      }
       // 잡힌 공은 먼저 납작해졌다가 작아진다. 숫자는 즉시 다음 문제와 분리된다.
       const squeeze = prog < 0.3 ? prog / 0.3 : Math.max(0, 1 - prog);
       ctx.beginPath();

@@ -51,6 +51,7 @@ export function gateLayout(game) {
   const lockP=1-.4/sec,reading=clamp(p/lockP,0,1),pass=clamp((p-lockP)/(1-lockP),0,1);
   // 마지막0.4초(선택 잠금) 전에는 가장자리 차선에서도 모든 숫자가 읽히는 거리.
   // 잠금 뒤에는 실제 원근 크기로 확대되어 운전석 위/옆을 지나간다.
+  // 게이트가 차 쪽으로 다가오는 느낌은 유지하되, 마지막에도 안전 여백 안에 남긴다.
   const scale=mix(U(3.2),U(3.7),reading)+U(11)*pass*pass;
   const center=projectWorld(game,0,2.08,scale),ground=projectWorld(game,0,0,scale);
   const w=.9*scale,h=.6*scale;
@@ -101,8 +102,16 @@ function road(ctx,game) {
   const a=roadProjection(game,0),b=roadProjection(game,1);
   const trapezoid=mult=>[[a.cx-a.half*mult,a.y],[a.cx+a.half*mult,a.y],[b.cx+b.half*mult,b.y],[b.cx-b.half*mult,b.y]];
   poly(ctx,trapezoid(1.09),'#e2d9b7');
-  poly(ctx,trapezoid(1),gradient(ctx,0,a.y,0,b.y,['#979da7','#747c89','#596575']));
-  const texture=raceImage('asphalt');
+  const toy=true;
+  poly(ctx,trapezoid(1),toy?'#f8efd8':gradient(ctx,0,a.y,0,b.y,['#979da7','#747c89','#596575']));
+  if(toy){
+    const laneColors=['#55c8d8','#ef8e9c','#f4c95d'];
+    for(let lane=0;lane<3;lane++){
+      const left=-1.5+lane,right=left+1;
+      poly(ctx,[[a.cx+a.laneSpacing*left,a.y],[a.cx+a.laneSpacing*right,a.y],[b.cx+b.laneSpacing*right,b.y],[b.cx+b.laneSpacing*left,b.y]],laneColors[lane]);
+    }
+  }
+  const texture=toy?null:raceImage('asphalt');
   if(texture){
     ctx.save();path(ctx,trapezoid(1));ctx.clip();
     // 2D 캔버스의 작은 가로 띠에 원근 텍스처를 투영. 노면이 배경과 함께 움직인다.
@@ -171,7 +180,8 @@ function roadside(ctx,game) {
 }
 
 function speedLines(ctx,game) {
-  const strength=Math.max(game.boostVisual||0,game.engine?.fever?.active ? .35 : 0,(game.boostT||0)*.7);
+  // 평상시에도 약한 흐름을 유지해 정지 화면처럼 보이지 않게 한다.
+  const strength=Math.max(.12,game.boostVisual||0,game.engine?.fever?.active ? .35 : 0,(game.boostT||0)*.7);
   if(strength<.025)return;
   const {horizon,dash}=cockpitLayout();ctx.save();
   // 중앙 숫자 영역은 마스크 밖. 속도선은 화면 좌우에만 그린다.
@@ -191,7 +201,11 @@ function speedLines(ctx,game) {
 
 export function drawCockpitWorld(ctx,game) {
   preloadRaceAssets();
-  ctx.save();backdrop(ctx,game);road(ctx,game);roadside(ctx,game);speedLines(ctx,game);ctx.restore();
+  ctx.save();backdrop(ctx,game);road(ctx,game);
+  // 새 풍경에 이미 나무와 언덕이 포함되어 있어 기존 반복 장식은 겹치지 않게 생략한다.
+  const landscape=raceImage('landscape');
+  if(!landscape || !landscape.src.includes('toy-landscape'))roadside(ctx,game);
+  speedLines(ctx,game);ctx.restore();
 }
 
 export function drawCockpitGate(ctx,game) {
@@ -248,6 +262,9 @@ export function drawCockpit(ctx,game) {
     ctx.fillStyle=gradient(ctx,0,dash,0,L.H,['#ffad4b','#263d52','#121f32']);ctx.fillRect(0,dash-U(.4),L.W,L.H-dash+U(.4));
   }
   ctx.restore();
+  // 화면 하단에 자동차 앞 보닛을 남겨 1인칭 전진감을 만든다.
+  const bob=Math.sin((game.raceElapsed||0)*12)*(game.manualBoostT>0?U(.08):U(.035));
+  drawToyHood(ctx,L.W/2,dash-U(.06)+bob,U(6.8),game.manualBoostT>0);
   if(game.bestScore>0){
     const score=game.engine.scoreManager.score,ratio=clamp(score/game.bestScore,0,1);
     label(ctx,game.beatBest?'최고점 돌파!':`내 최고 ${game.bestScore.toLocaleString()} · ${Math.max(0,game.bestScore-score).toLocaleString()}점 남음`,L.W/2,dash+U(.65),U(.53),'#e3f7ff');
@@ -270,6 +287,15 @@ export function drawCockpit(ctx,game) {
     poly(ctx,[[-r,0],[r,0],[r,U(.2)],[-r,U(.2)]],'#6c879b');ellipse(ctx,0,0,U(.85),U(.75),'#d7782c');
   }
   ctx.restore();ctx.restore();
+}
+
+function drawToyHood(ctx,x,y,w,boost){
+  const h=U(1.1);ctx.save();
+  ctx.beginPath();ctx.roundRect(x-w/2,y-h*.35,w,h,U(.35));
+  ctx.fillStyle=boost?'#f6b83f':'#32b9c4';ctx.fill();ctx.strokeStyle='#f8e0a1';ctx.lineWidth=U(.08);ctx.stroke();
+  ctx.fillStyle='#f8f4d7';ctx.fillRect(x-U(.16),y-h*.23,U(.32),h*.7);
+  for(const dx of [-w*.35,w*.35]){ctx.beginPath();ctx.arc(x+dx,y+h*.1,U(.17),0,Math.PI*2);ctx.fillStyle=boost?'#fff1a5':'#ff6b54';ctx.fill();ctx.strokeStyle='#fff4c0';ctx.stroke();}
+  ctx.restore();
 }
 
 export function drawCockpitPreview(ctx) {

@@ -16,16 +16,18 @@ function jelly(c,x,y,r,value,color,selected,t,variant){
     const sw=image.naturalWidth/2,sh=image.naturalHeight/2;
     c.drawImage(image,(variant%2)*sw,Math.floor(variant/2)*sh,sw,sh,-r*1.23,-r*1.23,r*2.46,r*2.46);
     // Keep the badge above the eyes; retain the readable numeric type size.
-    roundRect(c,-r*.62,-r*.72,r*1.24,r*.68,r*.2);c.fillStyle='#fffdf3';c.fill();
-    txt(c,String(value),0,-r*.36,L.font(.043));
+    roundRect(c,-r*.64,-r*.72,r*1.28,r*.68,r*.2);c.fillStyle='#fff4dc';c.fill();
+    c.lineWidth=L.gu(.055);c.strokeStyle='#3f526f';c.stroke();
+    txt(c,String(value),0,-r*.36,L.font(.045),'#314665');
   }else{
   oval(c,0,r*.92,r*.82,r*.14,'#68b9bc');
   for(const s of [-1,0,1])oval(c,s*r*.5,r*.71,r*.22,r*.25,color);
   panel(c,-r,-r,r*2,r*1.8,color,r*.65);
   oval(c,-r*.56,-r*.62,r*.2,r*.09,'#fff8ee');
   // A light number label protects contrast on every jelly colour.
-  roundRect(c,-r*.83,-r*.53,r*1.66,r*.95,r*.26);c.fillStyle='#fffdf3';c.fill();
-  txt(c,String(value),0,-r*.045,L.font(.043));
+  roundRect(c,-r*.83,-r*.53,r*1.66,r*.95,r*.26);c.fillStyle='#fff4dc';c.fill();
+  c.lineWidth=L.gu(.055);c.strokeStyle='#3f526f';c.stroke();
+  txt(c,String(value),0,-r*.045,L.font(.045),'#314665');
   for(const s of [-1,1]){
     oval(c,s*r*.19,r*.58,r*.036,r*.054,INK);
     oval(c,s*r*.4,r*.65,r*.12,r*.048,'#ef9caa');

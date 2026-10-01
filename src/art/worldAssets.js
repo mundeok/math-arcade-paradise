@@ -1,5 +1,5 @@
 // Optional static world art. Gameplay remains fully functional when an asset fails to load.
-const FILES = { g07_shoot: 'shoot-bg-v1.webp', g04_timing: 'timing-bg-v1.webp', g11_farm: 'farm-bg-v1.webp', g05_match: 'match-bg-v1.webp', g06_stack: 'stack-bg-v1.webp', g09_balloon: 'balloon-bg-v1.webp', g10_remain: 'treasure-bg-v1.webp' };
+const FILES = { g02_catch: 'catch-bg-v1.webp', g07_shoot: 'shoot-bg-v1.webp', g04_timing: 'timing-bg-v1.webp', g11_farm: 'farm-bg-v1.webp', g05_match: 'match-bg-v1.webp', g06_stack: 'stack-bg-v1.webp', g09_balloon: 'balloon-bg-v1.webp', g10_remain: 'treasure-bg-v1.webp' };
 const assets = new Map();
 
 export function worldImage(id) {

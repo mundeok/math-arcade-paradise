@@ -2,6 +2,7 @@
 // Geometry comes from L or the supplied shape size; save/restore at the boundary.
 import { L } from '../core/layout.js';
 import { font, roundRect } from '../core/ui.js';
+import { deliveryImage, deliverySprite } from './deliveryAssets.js';
 
 const INK='#4c4256', PAPER='#fff9e9', PEACH='#ffba94', MINT='#86d5bb';
 const clamp=v=>Math.max(0,Math.min(1,v));
@@ -37,6 +38,8 @@ function cloud(c,x,y,w){
   oval(c,x+w*.07,y-w*.12,w*.21,w*.2,'#fffdf2');
 }
 function backdrop(c,t,fever){
+  const art=deliveryImage('background');
+  if(art){c.drawImage(art,0,0,L.W,L.H);c.fillStyle=fever?'rgba(255,226,140,.2)':'rgba(255,249,233,.12)';c.fillRect(0,0,L.W,L.H);return;}
   const grad=c.createLinearGradient(0,L.zone.hudBottom,0,L.H);grad.addColorStop(0,fever?'#ffe5a5':'#a4e3ef');grad.addColorStop(1,'#eff8d3');
   c.fillStyle=grad;c.fillRect(0,0,L.W,L.H);
   cloud(c,L.safe+L.gu(1),L.zone.playTop+L.gu(1),L.gu(4));
@@ -88,6 +91,15 @@ function house(c,g,b,i){
   const x=b.x,y=b.y,w=b.w,h=b.h,color=i===0?MINT:PEACH;
   const happy=g.flights.some(f=>f.side===i),pressed=g.armed===i;
   c.save();c.translate(0,pressed?L.gu(.1):happy?-L.gu(.05):0);
+  const art=deliveryImage(i===0?'mint':'peach');
+  if(art){
+    const ah=h-L.gu(.65),aw=Math.min(w,ah*art.naturalWidth/art.naturalHeight),dh=aw*art.naturalHeight/art.naturalWidth;
+    c.drawImage(art,x+(w-aw)/2,y,aw,dh);
+    text(c,String(g.targets[i]),x+w/2,y+dh*.34,Math.min(L.font(.065),aw*.19));
+    box(c,x+L.gu(.25),y+h-L.gu(.6),w-L.gu(.5),L.gu(.75),PAPER,L.gu(.3),false);
+    text(c,i===0?'◀ 왼쪽 · A':'오른쪽 · D ▶',x+w/2,y+h-L.gu(.22),L.font(.024));
+    c.restore();return;
+  }
   oval(c,x+w/2,y+h+L.gu(.24),w*.47,L.gu(.24),'#b4cda2');
   buddy(c,x+w/2,y-L.gu(1.14),L.gu(2.25),color,i===0?'bear':'bun',happy);
   box(c,x,y+L.gu(.13),w,h,'#9b998c',L.gu(.65),false);
@@ -111,7 +123,7 @@ function timer(c,g,r){
 function ready(c,g,r){
   text(c,'두 갈래 배송',L.W/2,L.zone.problem+L.gu(.4),L.font(.056));
   text(c,'숲속 친구들에게 택배를 보내요',L.W/2,L.zone.problem+L.gu(2),L.font(.027),'#5d6676');
-  buddy(c,L.W/2,L.zone.playTop+L.gu(4.5),L.gu(2.4),MINT,'bear',true);
+  if(!deliverySprite(c,'truck',L.W/2,L.zone.playTop+L.gu(4.1),L.gu(3.8),L.gu(3.8)))buddy(c,L.W/2,L.zone.playTop+L.gu(4.5),L.gu(2.4),MINT,'bear',true);
   parcel(c,{x:r.card.x+L.gu(.8),y:r.card.y-L.gu(.2),w:r.card.w-L.gu(1.6),h:L.gu(3.6)},'6 × 4');
   text(c,'◀ 24       32 ▶',L.W/2,L.zone.controls-L.gu(3.6),L.font(.04));
   text(c,`한 판 60초 · 카드 ${g._cardSeconds()}초 · 8개마다 출발!`,L.W/2,L.zone.controls-L.gu(2.2),L.font(.025));
@@ -138,14 +150,16 @@ export function drawDeliveryScene(c,g){
     if(g.feedback&&g.cue<=0)text(c,g.feedback.text,L.W/2,fy,L.font(.029),g.feedback.good?'#436f66':'#994f49');
     else text(c,g.cue>0?'두 집의 숫자를 확인해요!':'어느 집으로 보내줄까?',L.W/2,fy,L.font(.027),'#5d6973');
     r.buttons.forEach((b,i)=>house(c,g,b,i));
+    if(!g.departures.length)deliverySprite(c,'truck',L.W/2,L.zone.floor+L.gu(.3),L.gu(2.8),L.gu(2.8));
     for(const f of g.flights){
       const p=clamp(f.t/.22),b=r.buttons[f.side],cx=r.card.x+r.card.w/2;
       c.save();c.globalAlpha=1-p*.65;
       const x=cx+(b.x+b.w/2-cx)*p,y=r.card.y+r.card.h/2+(b.y-r.card.y)*p;
-      box(c,x-L.gu(.5),y-L.gu(.38),L.gu(1),L.gu(.76),'#ffcd94',L.gu(.16));c.restore();
+      if(!deliverySprite(c,'truck',x,y,L.gu(2),L.gu(2)))box(c,x-L.gu(.5),y-L.gu(.38),L.gu(1),L.gu(.76),'#ffcd94',L.gu(.16));c.restore();
     }
     for(const d of g.departures){
       const x=L.W/2+(L.W+L.gu(4))*d.t/.7,y=L.zone.floor+L.gu(.45);
+      if(deliverySprite(c,'depart',x,y-L.gu(.6),L.gu(4.8),L.gu(3.2)))continue;
       box(c,x-L.gu(2),y-L.gu(1.35),L.gu(2.8),L.gu(1.35),'#ffd08b',L.gu(.3));
       box(c,x+L.gu(.8),y-L.gu(.9),L.gu(1.15),L.gu(.9),MINT,L.gu(.3));
       text(c,'택배',x-L.gu(.6),y-L.gu(.68),L.font(.021));

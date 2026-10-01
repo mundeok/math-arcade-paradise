@@ -3,6 +3,7 @@
 import { L } from '../core/layout.js';
 import { THEME, font, hit } from '../core/ui.js';
 import { drawDeliveryScene } from '../art/deliveryArt.js';
+import { preloadDelivery } from '../art/deliveryAssets.js';
 import { g01Combo } from './g01_combo.js';
 import { DeliveryDeck } from './deliveryDeck.js';
 
@@ -23,13 +24,14 @@ export const g01Delivery={
   _layout(){
     const gap=L.gu(.5),w=(L.W-L.safe*2-gap)/2;
     return {
-      buttons:[0,1].map(i=>({x:L.safe+i*(w+gap),y:L.zone.controls+L.gu(2.2),w,h:L.gu(4)})),
+      buttons:[0,1].map(i=>({x:L.safe+i*(w+gap),y:L.zone.controls+L.gu(.4),w,h:L.gu(5.8)})),
       card:{x:L.safe+L.gu(1.2),y:L.zone.playTop+L.gu(6.9),w:L.W-L.safe*2-L.gu(2.4),h:L.gu(5.3)},
       start:{x:L.safe+L.gu(1),y:L.zone.controls-L.gu(1),w:L.W-L.safe*2-L.gu(2),h:L.minTouch+L.gu(.5)},
       legacy:{x:L.safe+L.gu(1),y:L.zone.controls+L.gu(3),w:L.W-L.safe*2-L.gu(2),h:L.minTouch},
     };
   },
   init(engine){
+    preloadDelivery();
     this.engine=engine;this.deck=new DeliveryDeck(engine.settings);this.phase='ready';
     this.time=0;this.remaining=ROUND_SECONDS;this.delivered=0;this.loads=0;this.inLoad=0;
     this.targets=[];this.queue=[];this.problem=null;this.flights=[];this.feedback=null;
